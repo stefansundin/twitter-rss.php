@@ -176,7 +176,7 @@ foreach ($json as $t) {
 		$title = str_replace($url["url"], "[$domain]", $title);
 
 		// embed if YouTube
-		if (stripos($expanded_url,"//www.youtube.com/") !== FALSE) {
+		if ($domain == "www.youtube.com" || $domain == "m.youtube.com") {
 			unset($video_id);
 			unset($list);
 
@@ -199,7 +199,7 @@ foreach ($json as $t) {
 		}
 
 		// embed if Vimeo
-		if (stripos($expanded_url,"//vimeo.com/") !== FALSE) {
+		if ($domain == "vimeo.com") {
 			if (preg_match("/\/(\d+)/",$expanded_url,$matches) > 0) {
 				$video_id = $matches[1];
 				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$video_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
@@ -207,7 +207,7 @@ foreach ($json as $t) {
 		}
 	}
 
-	// expand media (only Twitter pics for now)
+	// expand media (Twitter pics)
 	if (isset($t["entities"]["media"])) {
 		foreach ($t["entities"]["media"] as $url) {
 			#var_dump($url);
