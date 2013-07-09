@@ -186,42 +186,55 @@ foreach ($json as $t) {
 
 	// expand urls
 	foreach ($t["entities"]["urls"] as $url) {
+		unset($embed_id);
+		unset($list);
+
 		#var_dump($url);
 		$expanded_url = resolve_url($url["expanded_url"]);
 		$escaped_url = str_replace("&", "&amp;", $expanded_url);
 		$text = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $text);
 
 		$domain = strtolower(parse_url($expanded_url, PHP_URL_HOST));
+		$path = parse_url($expanded_url, PHP_URL_PATH);
+		$query = parse_url($expanded_url, PHP_URL_QUERY);
+
 		$title = str_replace($url["url"], "[$domain]", $title);
 
 		// embed if YouTube
 		if ($domain == "www.youtube.com" || $domain == "m.youtube.com") {
-			unset($video_id);
-			unset($list);
-
-			if (preg_match("/[\?&]v=([^&\?#]+)/",$expanded_url,$matches) > 0) {
-				$video_id = $matches[1];
+			if (preg_match("/[\?&]v=([^&\?#]+)/",$query,$matches) > 0) {
+				$embed_id = $matches[1];
 			}
-			if (preg_match("/[\?&]list=([^&\?#]+)/",$expanded_url,$matches) > 0) {
+			if (preg_match("/[\?&]list=([^&\?#]+)/",$query,$matches) > 0) {
 				$list = $matches[1];
 			}
 
-			if (isset($video_id) && isset($list)) {
-				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$video_id?list=$list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			if (isset($embed_id) && isset($list)) {
+				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id?list=$list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
 			}
-			else if (!isset($video_id) && isset($list)) {
+			else if (!isset($embed_id) && isset($list)) {
 				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list=$list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
 			}
-			else if (isset($video_id) && !isset($list)) {
-				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$video_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			else if (isset($embed_id) && !isset($list)) {
+				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
 			}
 		}
 
 		// embed if Vimeo
 		if ($domain == "vimeo.com") {
-			if (preg_match("/\/(\d+)/",$expanded_url,$matches) > 0) {
-				$video_id = $matches[1];
-				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$video_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			if (preg_match("/\/(\d+)/",$path,$matches) > 0) {
+				$embed_id = $matches[1];
+				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			}
+		}
+
+		// embed if TwitPic
+		if ($domain == "twitpic.com") {
+			if (preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
+				$embed_id = $matches[1];
+				$media_url = "http://twitpic.com/show/large/$embed_id.jpg";
+				$text .= "\n&lt;p>&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
+				$text .= "\n&lt;p>&lt;img src=\"\" />&lt;/p>";
 			}
 		}
 	}
@@ -231,7 +244,7 @@ foreach ($json as $t) {
 		foreach ($t["entities"]["media"] as $url) {
 			#var_dump($url);
 			$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
-			$text = str_replace($url["url"], "&lt;a href=\"$media_url\">$media_url&lt;/a>", $text);
+			$text = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $text);
 			$text .= "\n&lt;p>&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
 
 			if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
