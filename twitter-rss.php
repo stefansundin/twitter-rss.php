@@ -39,17 +39,28 @@ $user = $_GET["user"];
 
 
 function resolve_url($url) {
+	/*
 	$shorteners = Array("bit.ly", "t.co", "tinyurl.com", "wp.me", "goo.gl", "fb.me", "is.gd", "tiny.cc", "youtu.be", "yt.be", "flic.kr", "tr.im", "ow.ly", "t.cn", "url.cn", "g.co", "is.gd", "su.pr", "aje.me");
-
 	$domain = parse_url($url, PHP_URL_HOST);
 	if (!in_array($domain,$shorteners)) {
 		return $url;
 	}
-
+	*/
 	ini_set('user_agent', 'Mozilla/5.0'); // fb.me hack
-	$headers = get_headers($url);
+	$headers = @get_headers($url);
+	if ($headers === FALSE) {
+		// maybe badly configured dns (e.g. nasa.gov), try adding the stupid www prefix
+		$wwwurl = str_replace("://", "://www.", $url);
+		$headers = get_headers($wwwurl);
+		if ($headers === FALSE) {
+			// it didn't work
+			return $url;
+		}
+		$url = $wwwurl;
+	}
 	$headers = array_reverse($headers);
 	#var_dump($headers);
+
 	foreach ($headers as $header) {
 		if (stripos($header,"Location:") === 0) {
 			$location = trim(substr($header, strlen("Location:")));
@@ -73,6 +84,13 @@ function resolve_url($url) {
 			return $location;
 		}
 	}
+
+	if (isset($path) && preg_match("/^([a-zA-Z]+:\/\/[^\/]+)/",$url,$matches) > 0) {
+		// compose the path
+		return $matches[1].$path;
+	}
+	
+	return $url;
 }
 
 set_time_limit(120); // resolving all the urls can take quite a bit of time...
@@ -173,7 +191,7 @@ foreach ($json as $t) {
 		$escaped_url = str_replace("&", "&amp;", $expanded_url);
 		$text = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $text);
 
-		$domain = parse_url($expanded_url, PHP_URL_HOST);
+		$domain = strtolower(parse_url($expanded_url, PHP_URL_HOST));
 		$title = str_replace($url["url"], "[$domain]", $title);
 
 		// embed if YouTube
@@ -216,8 +234,9 @@ foreach ($json as $t) {
 			$text = str_replace($url["url"], "&lt;a href=\"$media_url\">$media_url&lt;/a>", $text);
 			$text .= "\n&lt;p>&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
 
-			$domain = parse_url($url["display_url"], PHP_URL_HOST);
-			$title = str_replace($url["url"], "[$domain]", $title);
+			if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
+				$title = str_replace($url["url"], "[{$matches[1]}]", $title);
+			}
 		}
 	}
 
