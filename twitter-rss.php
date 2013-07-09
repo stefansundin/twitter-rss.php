@@ -51,7 +51,7 @@ function resolve_url($url) {
 	if ($headers === FALSE) {
 		// maybe badly configured dns (e.g. nasa.gov), try adding the stupid www prefix
 		$wwwurl = str_replace("://", "://www.", $url);
-		$headers = get_headers($wwwurl);
+		$headers = @get_headers($wwwurl);
 		if ($headers === FALSE) {
 			// it didn't work
 			return $url;
