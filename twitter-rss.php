@@ -66,7 +66,7 @@ function resolve_url($url) {
 				// will occur if the script is generating a lot of resolve_url() requests that lead to YouTube
 				continue;
 			}
-			if (isset($path) && preg_match("/^([a-zA-Z]+?:\/\/[^\/]+)/",$location,$matches) > 0) {
+			if (isset($path) && preg_match("/^([a-zA-Z]+:\/\/[^\/]+)/",$location,$matches) > 0) {
 				// compose the path
 				$location = $matches[1].$path;
 			}
@@ -169,8 +169,9 @@ foreach ($json as $t) {
 	// expand urls
 	foreach ($t["entities"]["urls"] as $url) {
 		#var_dump($url);
-		$expanded_url = str_replace("&", "&amp;", resolve_url($url["expanded_url"]));
-		$text = str_replace($url["url"], "&lt;a href=\"$expanded_url\" title=\"{$url["display_url"]}\">$expanded_url&lt;/a>", $text);
+		$expanded_url = resolve_url($url["expanded_url"]);
+		$escaped_url = str_replace("&", "&amp;", $expanded_url);
+		$text = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $text);
 
 		$domain = parse_url($expanded_url, PHP_URL_HOST);
 		$title = str_replace($url["url"], "[$domain]", $title);
