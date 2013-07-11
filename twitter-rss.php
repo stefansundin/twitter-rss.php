@@ -24,6 +24,8 @@ https://dev.twitter.com/docs/tweet-entities
 http://creativecommons.org/licenses/by/3.0/
 */
 
+#die(var_dump(get_headers("https://t.co/HWj5eT3MOh")));
+
 $consumer_key = "xxx";
 $consumer_secret = "yyy";
 $access_token = "zzz";
@@ -36,17 +38,25 @@ if (!isset($_GET["user"])) {
 
 $user = $_GET["user"];
 
-
+$resolved_urls = array();
 
 function resolve_url($url) {
+	global $resolved_urls;
+	$original_url = $url;
+	ini_set("user_agent", "Mozilla/5.0"); // fb.me hack
+
 	/*
-	$shorteners = Array("bit.ly", "t.co", "tinyurl.com", "wp.me", "goo.gl", "fb.me", "is.gd", "tiny.cc", "youtu.be", "yt.be", "flic.kr", "tr.im", "ow.ly", "t.cn", "url.cn", "g.co", "is.gd", "su.pr", "aje.me");
+	$shorteners = array("bit.ly", "t.co", "tinyurl.com", "wp.me", "goo.gl", "fb.me", "is.gd", "tiny.cc", "youtu.be", "yt.be", "flic.kr", "tr.im", "ow.ly", "t.cn", "url.cn", "g.co", "is.gd", "su.pr", "aje.me");
 	$domain = parse_url($url, PHP_URL_HOST);
 	if (!in_array($domain,$shorteners)) {
 		return $url;
 	}
 	*/
-	ini_set('user_agent', 'Mozilla/5.0'); // fb.me hack
+
+	if (isset($resolved_urls[$url])) {
+		return $resolved_urls[$url];
+	}
+
 	$headers = @get_headers($url);
 	if ($headers === FALSE) {
 		// maybe badly configured dns (e.g. nasa.gov), try adding the stupid www prefix
@@ -54,44 +64,118 @@ function resolve_url($url) {
 		$headers = @get_headers($wwwurl);
 		if ($headers === FALSE) {
 			// it didn't work
+			$resolved_urls[$original_url] = $url;
 			return $url;
 		}
+		// it worked
 		$url = $wwwurl;
 	}
-	$headers = array_reverse($headers);
-	#var_dump($headers);
 
+	#var_dump($headers);
 	foreach ($headers as $header) {
-		if (stripos($header,"Location:") === 0) {
-			$location = trim(substr($header, strlen("Location:")));
-			if ($location[0] == "/") {
-				// relative redirect, must get next Location header until a domain appears
-				// Google Plus does this sometimes
-				if (!isset($path)) {
-					$path = $location;
-				}
-				continue;
-			}
-			if (stripos($location,"//www.youtube.com/das_captcha") !== FALSE) {
-				// ignore YouTube captcha and grab the real url
-				// will occur if the script is generating a lot of resolve_url() requests that lead to YouTube
-				continue;
-			}
-			if (isset($path) && preg_match("/^([a-zA-Z]+:\/\/[^\/]+)/",$location,$matches) > 0) {
-				// compose the path
-				$location = $matches[1].$path;
-			}
-			return $location;
+		$parts = explode(":", $header, 2);
+		if (strtolower($parts[0]) != "location") {
+			continue;
+		}
+		$location = trim($parts[1]);
+
+		if (stripos($location,"://www.youtube.com/das_captcha") !== FALSE
+		 || stripos($location,"://www.nytimes.com/glogin") !== FALSE) {
+			// YouTube captcha, ignore this redirection. Will occur if the script is generating a lot of resolve_url() requests that lead to YouTube.
+			// nytimes.com has a bad reaction if it can't set cookies, just stop this madness
+			break;
+		}
+
+		if ($location[0] == "/") {
+			// relative redirect, only change the path (Google Plus does this sometimes)
+			$url = preg_replace("/^([a-zA-Z]+:\/\/[^\/]+)(.*)$/", "$0$location", $url);
+		}
+		else {
+			$url = $location;
 		}
 	}
 
-	if (isset($path) && preg_match("/^([a-zA-Z]+:\/\/[^\/]+)/",$url,$matches) > 0) {
-		// compose the path
-		return $matches[1].$path;
-	}
-	
+	$resolved_urls[$original_url] = $url;
 	return $url;
 }
+
+function parse_tweet($tweet) {
+	$t = array(
+		"user"    => $tweet["user"]["screen_name"],
+		"updated" => date("c", strtotime($tweet["created_at"])),
+		"title"   => $tweet["text"],
+		"text"    => $tweet["text"],
+		"embeds"  => array()
+	);
+
+	// expand urls
+	foreach ($tweet["entities"]["urls"] as $url) {
+		unset($embed_id);
+		unset($embed_list);
+
+		$expanded_url = resolve_url($url["expanded_url"]);
+		$escaped_url = str_replace("&", "&amp;", $expanded_url);
+		$host = strtolower(parse_url($expanded_url, PHP_URL_HOST));
+		$path = parse_url($expanded_url, PHP_URL_PATH);
+		$query = "?".parse_url($expanded_url, PHP_URL_QUERY);
+
+		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $t["text"]);
+		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
+
+		// embed if YouTube
+		if ($host == "www.youtube.com" || $host == "m.youtube.com") {
+			if (preg_match("/[\?&]v=([^&#]+)/",$query,$matches) > 0) {
+				$embed_id = $matches[1];
+			}
+			if (preg_match("/[\?&]list=([^&#]+)/",$query,$matches) > 0) {
+				$embed_list = $matches[1];
+			}
+
+			if (isset($embed_id) && isset($embed_list)) {
+				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			}
+			else if (!isset($embed_id) && isset($embed_list)) {
+				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			}
+			else if (isset($embed_id) && !isset($embed_list)) {
+				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			}
+		}
+
+		// embed if Vimeo
+		if ($host == "vimeo.com") {
+			if (preg_match("/\/(\d+)/",$path,$matches) > 0) {
+				$embed_id = $matches[1];
+				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+			}
+		}
+
+		// embed if TwitPic
+		if ($host == "twitpic.com") {
+			if (preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
+				$embed_id = $matches[1];
+				$media_url = "http://twitpic.com/show/large/$embed_id.jpg";
+				$t["embeds"][] = "&lt;p>&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
+			}
+		}
+	}
+
+	// expand media (Twitter pics)
+	if (isset($tweet["entities"]["media"])) {
+		foreach ($tweet["entities"]["media"] as $url) {
+			$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
+			$t["text"] = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $t["text"]);
+			$t["embeds"][] = "&lt;p>&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
+
+			if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
+				$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
+			}
+		}
+	}
+
+	return $t;
+}
+
 
 set_time_limit(120); // resolving all the urls can take quite a bit of time...
 
@@ -157,7 +241,7 @@ curl_setopt_array($feed, $options);
 $json = json_decode(curl_exec($feed), true);
 curl_close($feed);
 
-#var_dump($json);
+#die(var_dump($json));
 
 
 
@@ -175,94 +259,39 @@ echo <<<END
 	<updated>$updated</updated>
 	<link href="https://twitter.com/$user" />
 
-
 END;
 
 
-foreach ($json as $t) {
-	$user = $t["user"]["screen_name"];
-	$updated = date("c", strtotime($t["created_at"]));
-	$text = $title = $t["text"];
+foreach ($json as $tweet) {
+	$id = $tweet["id_str"];
+	$t = parse_tweet($tweet);
+	$title = "{$t["user"]}: {$t["title"]}";
+	$content = "{$t["user"]}: {$t["text"]}";
 
-	// expand urls
-	foreach ($t["entities"]["urls"] as $url) {
-		unset($embed_id);
-		unset($list);
-
-		#var_dump($url);
-		$expanded_url = resolve_url($url["expanded_url"]);
-		$escaped_url = str_replace("&", "&amp;", $expanded_url);
-		$text = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $text);
-
-		$domain = strtolower(parse_url($expanded_url, PHP_URL_HOST));
-		$path = parse_url($expanded_url, PHP_URL_PATH);
-		$query = parse_url($expanded_url, PHP_URL_QUERY);
-
-		$title = str_replace($url["url"], "[$domain]", $title);
-
-		// embed if YouTube
-		if ($domain == "www.youtube.com" || $domain == "m.youtube.com") {
-			if (preg_match("/[\?&]v=([^&\?#]+)/",$query,$matches) > 0) {
-				$embed_id = $matches[1];
-			}
-			if (preg_match("/[\?&]list=([^&\?#]+)/",$query,$matches) > 0) {
-				$list = $matches[1];
-			}
-
-			if (isset($embed_id) && isset($list)) {
-				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id?list=$list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
-			}
-			else if (!isset($embed_id) && isset($list)) {
-				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list=$list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
-			}
-			else if (isset($embed_id) && !isset($list)) {
-				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
-			}
-		}
-
-		// embed if Vimeo
-		if ($domain == "vimeo.com") {
-			if (preg_match("/\/(\d+)/",$path,$matches) > 0) {
-				$embed_id = $matches[1];
-				$text .= "\n&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
-			}
-		}
-
-		// embed if TwitPic
-		if ($domain == "twitpic.com") {
-			if (preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
-				$embed_id = $matches[1];
-				$media_url = "http://twitpic.com/show/large/$embed_id.jpg";
-				$text .= "\n&lt;p>&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
-				$text .= "\n&lt;p>&lt;img src=\"\" />&lt;/p>";
-			}
-		}
+	if (isset($tweet["retweeted_status"])) {
+		$rt = parse_tweet($tweet["retweeted_status"]);
+		$content .= "\n&lt;br/>&lt;br/>\n{$rt["user"]}: {$rt["text"]}";
+		$t["embeds"] = array_unique(array_merge($t["embeds"], $rt["embeds"]));
 	}
 
-	// expand media (Twitter pics)
-	if (isset($t["entities"]["media"])) {
-		foreach ($t["entities"]["media"] as $url) {
-			#var_dump($url);
-			$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
-			$text = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $text);
-			$text .= "\n&lt;p>&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
-
-			if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
-				$title = str_replace($url["url"], "[{$matches[1]}]", $title);
-			}
-		}
+	if (isset($t["embeds"])) {
+		$content .= "\n".implode("\n", $t["embeds"]);
 	}
+
+	$content .= "\n&lt;br/>&lt;br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
 
 	echo <<<END
-	<entry>
-		<id>https://twitter.com/$user/status/{$t["id_str"]}</id>
-		<link href="https://twitter.com/$user/status/{$t["id_str"]}" />
-		<updated>$updated</updated>
-		<author><name>$user</name></author>
-		<title>$user: $title</title>
-		<content type="html">$user: $text</content>
-	</entry>
 
+	<entry>
+		<id>https://twitter.com/$user/status/$id</id>
+		<link href="https://twitter.com/$user/status/$id" />
+		<updated>{$t["updated"]}</updated>
+		<author><name>{$t["user"]}</name></author>
+		<title>$title</title>
+		<content type="html">
+$content
+		</content>
+	</entry>
 
 END;
 
