@@ -12,7 +12,8 @@ Steps:
 3. Copy consumer key and consumer secret to variables below.
 4. Create an access token on the bottom of the app page.
 5. Copy the access token and its secret to the variables below.
-6. Set up the feeds in your favorite reader, using twitter-rss.php?user=
+6. Make sure the url resolution database is created. Otherwise you can try: touch twitter-rss.db; chmod 666 twitter-rss.db
+7. Set up the feeds in your favorite reader, using twitter-rss.php?user=
 
 
 15 requests can be done per 15 minutes.
