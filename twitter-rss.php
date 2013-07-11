@@ -16,7 +16,7 @@ Steps:
 
 
 15 requests can be done per 15 minutes.
-TODO: Caching backend and rate limiting.
+TODO: Make sure we don't hit the limit.
 
 https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
 https://dev.twitter.com/docs/rate-limiting/1.1
@@ -24,39 +24,63 @@ https://dev.twitter.com/docs/tweet-entities
 http://creativecommons.org/licenses/by/3.0/
 */
 
-#die(var_dump(get_headers("https://t.co/HWj5eT3MOh")));
-
 $consumer_key = "xxx";
 $consumer_secret = "yyy";
 $access_token = "zzz";
 $access_token_secret = "xyz";
 
 
+#die(var_dump(get_headers("https://t.co/HWj5eT3MOh")));
+
 if (!isset($_GET["user"])) {
 	die("Please specify user like twitter-rss.php?user=");
 }
-
 $user = $_GET["user"];
 
-$resolved_urls = array();
+
+// setup url resolution db
+try {
+	$db = new PDO("sqlite:twitter-rss.db");
+	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
+} catch (PDOException $e) {
+	die("Database failed: ".$e->getMessage());
+}
+
+
+function normalize_url($url) {
+	// make protocol and host lowercase and make sure the path has a slash at the end
+	// this is to reduce duplicates in db and unnecessary resolves
+	if (preg_match("/^([a-zA-Z]+:\/\/[^\/]+)\/?(.*)$/", $url, $matches) > 0) {
+		return strtolower($matches[1])."/".$matches[2];
+	}
+	return $url;
+}
 
 function resolve_url($url) {
-	global $resolved_urls;
-	$original_url = $url;
+	global $db;
+	$original_url = $url = normalize_url($url);
 	ini_set("user_agent", "Mozilla/5.0"); // fb.me hack
 
 	/*
 	$shorteners = array("bit.ly", "t.co", "tinyurl.com", "wp.me", "goo.gl", "fb.me", "is.gd", "tiny.cc", "youtu.be", "yt.be", "flic.kr", "tr.im", "ow.ly", "t.cn", "url.cn", "g.co", "is.gd", "su.pr", "aje.me");
-	$domain = parse_url($url, PHP_URL_HOST);
-	if (!in_array($domain,$shorteners)) {
+	$host = parse_url($url, PHP_URL_HOST);
+	if (!in_array($host,$shorteners)) {
 		return $url;
 	}
 	*/
 
-	if (isset($resolved_urls[$url])) {
-		return $resolved_urls[$url];
+	// try to get resolved url from db
+	$stmt = $db->prepare("SELECT resolved FROM urls WHERE url=?");
+	$stmt->execute(array($url));
+	$row = $stmt->fetch(PDO::FETCH_ASSOC);
+	if ($row !== FALSE) {
+		$stmt = $db->prepare("UPDATE urls SET last_seen=? WHERE url=?");
+		$stmt->execute(array(time(), $url));
+		return $row["resolved"];
 	}
 
+	// get the headers
 	$headers = @get_headers($url);
 	if ($headers === FALSE) {
 		// maybe badly configured dns (e.g. nasa.gov), try adding the stupid www prefix
@@ -64,7 +88,8 @@ function resolve_url($url) {
 		$headers = @get_headers($wwwurl);
 		if ($headers === FALSE) {
 			// it didn't work
-			$resolved_urls[$original_url] = $url;
+			$stmt = $db->prepare("INSERT INTO urls VALUES (NULL,?,?,?,?)");
+			$stmt->execute(array($original_url, $url, time(), time()));
 			return $url;
 		}
 		// it worked
@@ -72,6 +97,7 @@ function resolve_url($url) {
 	}
 
 	#var_dump($headers);
+	// go through the headers
 	foreach ($headers as $header) {
 		$parts = explode(":", $header, 2);
 		if (strtolower($parts[0]) != "location") {
@@ -95,7 +121,10 @@ function resolve_url($url) {
 		}
 	}
 
-	$resolved_urls[$original_url] = $url;
+	// store resolved url in db
+	$stmt = $db->prepare("INSERT INTO urls VALUES (NULL,?,?,?,?)");
+	$stmt->execute(array($original_url, $url, time(), time()));
+
 	return $url;
 }
 
@@ -132,13 +161,13 @@ function parse_tweet($tweet) {
 			}
 
 			if (isset($embed_id) && isset($embed_list)) {
-				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
 			else if (!isset($embed_id) && isset($embed_list)) {
-				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
 			else if (isset($embed_id) && !isset($embed_list)) {
-				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
 		}
 
@@ -146,7 +175,7 @@ function parse_tweet($tweet) {
 		if ($host == "vimeo.com") {
 			if (preg_match("/\/(\d+)/",$path,$matches) > 0) {
 				$embed_id = $matches[1];
-				$t["embeds"][] = "&lt;p>&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>&lt;/p>";
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
 		}
 
@@ -155,7 +184,7 @@ function parse_tweet($tweet) {
 			if (preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
 				$embed_id = $matches[1];
 				$media_url = "http://twitpic.com/show/large/$embed_id.jpg";
-				$t["embeds"][] = "&lt;p>&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
+				$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$media_url\" />&lt;/a>";
 			}
 		}
 	}
@@ -165,7 +194,7 @@ function parse_tweet($tweet) {
 		foreach ($tweet["entities"]["media"] as $url) {
 			$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
 			$t["text"] = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $t["text"]);
-			$t["embeds"][] = "&lt;p>&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>&lt;/p>";
+			$t["embeds"][] = "&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>";
 
 			if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
 				$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
@@ -220,30 +249,27 @@ ksort($oauth); // probably not necessary, but twitter's demo does it
 
 $auth = "OAuth ".urldecode(http_build_query($oauth, "", ", "));
 
-
 // encode the query params
 $url .= "?".http_build_query($query);
 $url = str_replace(array("&amp;","%25"), array("&","%"), $url);
 
-
 // make the request
-
-$options = array(
+$feed = curl_init();
+curl_setopt_array($feed, array(
 	CURLOPT_HTTPHEADER => array("Authorization: $auth"),
 	CURLOPT_HEADER => false,
 	CURLOPT_URL => $url,
 	CURLOPT_RETURNTRANSFER => true,
 	CURLOPT_SSL_VERIFYPEER => false
-);
-
-$feed = curl_init();
-curl_setopt_array($feed, $options);
+));
 $json = json_decode(curl_exec($feed), true);
 curl_close($feed);
 
 #die(var_dump($json));
 
-
+if (isset($json["error"])) {
+	die($json["error"]);
+}
 
 $user = $json[0]["user"]["screen_name"];
 $updated = date("c", strtotime($json[0]["created_at"]));
@@ -274,8 +300,12 @@ foreach ($json as $tweet) {
 		$t["embeds"] = array_unique(array_merge($t["embeds"], $rt["embeds"]));
 	}
 
-	if (isset($t["embeds"])) {
-		$content .= "\n".implode("\n", $t["embeds"]);
+	if (isset($tweet["in_reply_to_screen_name"])) {
+		$content .= "\n&lt;br/>&lt;br/>\nIn reply to: &lt;a href=\"https://twitter.com/{$tweet["in_reply_to_screen_name"]}/status/{$tweet["in_reply_to_status_id_str"]}\">https://twitter.com/{$tweet["in_reply_to_screen_name"]}/status/{$tweet["in_reply_to_status_id_str"]}&lt;/a>";
+	}
+
+	if (!empty($t["embeds"])) {
+		$content .= "\n&lt;br/>&lt;br/>\n".implode("\n&lt;br/>&lt;br/>\n", $t["embeds"]);
 	}
 
 	$content .= "\n&lt;br/>&lt;br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
