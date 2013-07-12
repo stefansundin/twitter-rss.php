@@ -31,7 +31,7 @@ $access_token = "zzz";
 $access_token_secret = "xyz";
 
 
-#die(var_dump(get_headers("https://t.co/HWj5eT3MOh")));
+#die(var_dump(get_headers("http://wp.me/p1lMMQ-4J4")));
 
 if (!isset($_GET["user"])) {
 	die("Please specify user like twitter-rss.php?user=");
@@ -61,7 +61,7 @@ function normalize_url($url) {
 function resolve_url($url) {
 	global $db;
 	$original_url = $url = normalize_url($url);
-	ini_set("user_agent", "Mozilla/5.0"); // fb.me hack
+	ini_set("user_agent", "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:22.0) Gecko/20100101 Firefox/22.0"); // fb.me, wp.me
 
 	/*
 	$shorteners = array("bit.ly", "t.co", "tinyurl.com", "wp.me", "goo.gl", "fb.me", "is.gd", "tiny.cc", "youtu.be", "yt.be", "flic.kr", "tr.im", "ow.ly", "t.cn", "url.cn", "g.co", "is.gd", "su.pr", "aje.me");
@@ -89,7 +89,7 @@ function resolve_url($url) {
 		$headers = @get_headers($wwwurl);
 		if ($headers === FALSE) {
 			// it didn't work
-			$stmt = $db->prepare("INSERT INTO urls VALUES (NULL,?,?,?,?)");
+			$stmt = $db->prepare("INSERT OR REPLACE INTO urls VALUES (NULL,?,?,?,?)");
 			$stmt->execute(array($original_url, $url, time(), time()));
 			return $url;
 		}
@@ -123,7 +123,7 @@ function resolve_url($url) {
 	}
 
 	// store resolved url in db
-	$stmt = $db->prepare("INSERT INTO urls VALUES (NULL,?,?,?,?)");
+	$stmt = $db->prepare("INSERT OR REPLACE INTO urls VALUES (NULL,?,?,?,?)");
 	$stmt->execute(array($original_url, $url, time(), time()));
 
 	return $url;
@@ -152,7 +152,7 @@ function parse_tweet($tweet) {
 		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $t["text"]);
 		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
 
-		// embed if YouTube
+		// embed YouTube
 		if ($host == "www.youtube.com" || $host == "m.youtube.com") {
 			if (preg_match("/[\?&]v=([^&#]+)/",$query,$matches) > 0) {
 				$embed_id = $matches[1];
@@ -172,20 +172,27 @@ function parse_tweet($tweet) {
 			}
 		}
 
-		// embed if Vimeo
+		// embed Vimeo
 		if ($host == "vimeo.com") {
 			if (preg_match("/\/(\d+)/",$path,$matches) > 0) {
 				$embed_id = $matches[1];
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"http://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
 		}
 
-		// embed if TwitPic
+		// embed TwitPic
 		if ($host == "twitpic.com") {
 			if (preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
 				$embed_id = $matches[1];
-				$media_url = "http://twitpic.com/show/large/$embed_id.jpg";
-				$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$media_url\" />&lt;/a>";
+				$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"http://twitpic.com/show/large/$embed_id.jpg\" />&lt;/a>";
+			}
+		}
+
+		// embed instagram
+		if ($host == "instagram.com") {
+			if (preg_match("/\/p\/([^\/]+)/",$path,$matches) > 0) {
+				$embed_id = $matches[1];
+				$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/$embed_id/media/?size=l\" />&lt;/a>";
 			}
 		}
 	}
@@ -202,6 +209,10 @@ function parse_tweet($tweet) {
 			}
 		}
 	}
+
+	// escape unescaped ampersands, this is necessary on some (only old?) tweets
+	$t["title"] = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $t["title"]);
+	$t["text"] = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $t["text"]);
 
 	return $t;
 }
