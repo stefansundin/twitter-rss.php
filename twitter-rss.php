@@ -16,7 +16,7 @@ Steps:
 7. Set up the feeds in your favorite reader, using twitter-rss.php?user=
 
 
-15 requests can be done per 15 minutes.
+180 requests can be done per 15 minutes.
 TODO: Make sure we don't hit the limit.
 
 https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
@@ -223,6 +223,7 @@ set_time_limit(120); // resolving all the urls can take quite a bit of time...
 
 
 $url = "https://api.twitter.com/1.1/statuses/user_timeline.json";
+#$url = "https://api.twitter.com/1.1/application/rate_limit_status.json";
 $query = array(
 	"screen_name" => $user,
 	"count" => 200, // max 200
@@ -280,7 +281,12 @@ curl_close($feed);
 #die(var_dump($json));
 
 if (isset($json["error"])) {
+	http_response_code(503);
 	die($json["error"]);
+}
+if (isset($json["errors"])) {
+	http_response_code(429);
+	die($json["errors"]["message"]);
 }
 
 $user = $json[0]["user"]["screen_name"];
