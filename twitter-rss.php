@@ -115,7 +115,7 @@ function resolve_url($url) {
 
 		if ($location[0] == "/") {
 			// relative redirect, only change the path (Google Plus does this sometimes)
-			$url = preg_replace("/^([a-zA-Z]+:\/\/[^\/]+)(.*)$/", "$0$location", $url);
+			$url = preg_replace("/^([a-zA-Z]+:\/\/[^\/]+)(.*)$/", "$1$location", $url);
 		}
 		else {
 			$url = $location;
