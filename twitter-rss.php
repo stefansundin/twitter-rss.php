@@ -145,8 +145,9 @@ function parse_tweet($tweet) {
 
 		$expanded_url = resolve_url($url["expanded_url"]);
 		$escaped_url = str_replace("&", "&amp;", $expanded_url);
-		$host = strtolower(parse_url($expanded_url, PHP_URL_HOST));
+		$host = parse_url($expanded_url, PHP_URL_HOST);
 		$path = parse_url($expanded_url, PHP_URL_PATH);
+		$paths = explode("/", $path);
 		$query = "?".parse_url($expanded_url, PHP_URL_QUERY);
 
 		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $t["text"]);
@@ -173,27 +174,27 @@ function parse_tweet($tweet) {
 		}
 
 		// embed Vimeo
-		if ($host == "vimeo.com") {
-			if (preg_match("/\/(\d+)/",$path,$matches) > 0) {
-				$embed_id = $matches[1];
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
-			}
+		if ($host == "vimeo.com" && preg_match("/\/(\d+)/",$path,$matches) > 0) {
+			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/{$matches[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 		}
 
 		// embed TwitPic
-		if ($host == "twitpic.com") {
-			if (preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
-				$embed_id = $matches[1];
-				$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"http://twitpic.com/show/large/$embed_id.jpg\" />&lt;/a>";
-			}
+		if ($host == "twitpic.com" && preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
+			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://twitpic.com/show/large/{$matches[1]}.jpg\" />&lt;/a>";
 		}
 
-		// embed instagram
-		if ($host == "instagram.com") {
-			if (preg_match("/\/p\/([^\/]+)/",$path,$matches) > 0) {
-				$embed_id = $matches[1];
-				$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/$embed_id/media/?size=l\" />&lt;/a>";
-			}
+		// embed Instagram
+		if ($host == "instagram.com" && preg_match("/\/p\/([^\/]+)/",$path,$matches) > 0) {
+			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$matches[1]}/media/?size=l\" />&lt;/a>";
+		}
+
+		// embed SoundCloud
+		if ($host == "soundcloud.com"
+		 && !in_array($paths[1],explode(",","apps,community-guidelines,creators,dashboard,explore,imprint,jobs,logout,messages,pages,people,premium,press,pro,search,settings,stream,terms-of-use,upload,you"))
+		 && (!isset($paths[2]) || !in_array($paths[2],explode(",","activity,comments,favorites,followers,following,groups,likes,sets,tracks")))
+		) {
+			$height = isset($paths[2])?166:450;
+			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$escaped_url\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 		}
 	}
 
@@ -324,6 +325,17 @@ foreach ($json as $tweet) {
 
 	if (!empty($t["embeds"])) {
 		$content .= "\n&lt;br/>&lt;br/>\n".implode("\n&lt;br/>&lt;br/>\n", $t["embeds"]);
+		foreach ($t["embeds"] as $embed) {
+			if (strpos($embed,"youtube.com") || strpos($embed,"vimeo.com")) {
+				$title .= " &#x1F3AC;";
+			}
+			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"instagram.com")) {
+				$title .= " &#x1F3A8;";
+			}
+			else if (strpos($embed,"soundcloud.com")) {
+				$title .= " &#x1F3BC;";
+			}
+		}
 	}
 
 	$content .= "\n&lt;br/>&lt;br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
