@@ -145,7 +145,7 @@ function parse_tweet($tweet) {
 
 		$expanded_url = resolve_url($url["expanded_url"]);
 		$escaped_url = str_replace("&", "&amp;", $expanded_url);
-		$host = parse_url($expanded_url, PHP_URL_HOST);
+		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
 		$paths = explode("/", $path);
 		$query = "?".parse_url($expanded_url, PHP_URL_QUERY);
@@ -154,7 +154,7 @@ function parse_tweet($tweet) {
 		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
 
 		// embed YouTube
-		if ($host == "www.youtube.com" || $host == "m.youtube.com") {
+		if ($host == "youtube.com" || $host == "m.youtube.com") {
 			if (preg_match("/[\?&]v=([^&#]+)/",$query,$matches) > 0) {
 				$embed_id = $matches[1];
 			}
