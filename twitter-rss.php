@@ -31,7 +31,7 @@ $access_token = "zzz";
 $access_token_secret = "xyz";
 
 
-#die(var_dump(get_headers("http://wp.me/p1lMMQ-4J4")));
+#die(var_dump(get_headers("http://t.co/nan7rfQaps")));
 
 if (!isset($_GET["user"])) {
 	die("Please specify user like twitter-rss.php?user=");
@@ -61,7 +61,8 @@ function normalize_url($url) {
 function resolve_url($url) {
 	global $db;
 	$original_url = $url = normalize_url($url);
-	ini_set("user_agent", "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:22.0) Gecko/20100101 Firefox/22.0"); // fb.me, wp.me
+	#ini_set("user_agent", "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:22.0) Gecko/20100101 Firefox/22.0"); // wp.me
+	// t.co uses a HTML redirect if a web browser user agent is used (this is a problem if $url redirect to another t.co, which happens on twitter but is really just silly if you think about it, these url shorterners are redirecting to each other like 2-5 times before you arrive at your url, talk about slowing down the web unnecessarily)
 
 	/*
 	$shorteners = array("bit.ly", "t.co", "tinyurl.com", "wp.me", "goo.gl", "fb.me", "is.gd", "tiny.cc", "youtu.be", "yt.be", "flic.kr", "tr.im", "ow.ly", "t.cn", "url.cn", "g.co", "is.gd", "su.pr", "aje.me");
@@ -107,9 +108,12 @@ function resolve_url($url) {
 		$location = trim($parts[1]);
 
 		if (stripos($location,"://www.youtube.com/das_captcha") !== FALSE
-		 || stripos($location,"://www.nytimes.com/glogin") !== FALSE) {
-			// YouTube captcha, ignore this redirection. Will occur if the script is generating a lot of resolve_url() requests that lead to YouTube.
-			// nytimes.com has a bad reaction if it can't set cookies, just stop this madness
+		 || stripos($location,"://www.nytimes.com/glogin") !== FALSE
+		 || stripos($location,"://www.facebook.com/unsupportedbrowser") !== FALSE) {
+		 	// Stop at these redirections: (usually the last redirection, so we usually get the intended url anyway)
+			// YouTube captcha, will happen if the script is generating a lot of resolve_url() requests that lead to YouTube.
+			// nytimes.com has a bad reaction if it can't set cookies, and redirection loops ensues, just stop this madness
+			// Facebook redirects to unsupportedbrowser if it can't identify a known user agent
 			break;
 		}
 
@@ -149,6 +153,11 @@ function parse_tweet($tweet) {
 		$path = parse_url($expanded_url, PHP_URL_PATH);
 		$paths = explode("/", $path);
 		$query = "?".parse_url($expanded_url, PHP_URL_QUERY);
+
+		if ($host == "t.co") {
+			// probably cut-off in link retweet, ignore this url since it is invalid
+			continue;
+		}
 
 		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $t["text"]);
 		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
@@ -197,9 +206,18 @@ function parse_tweet($tweet) {
 			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$escaped_url\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 		}
 
+		// embed Spotify
+		if ($host == "play.spotify.com" && count($paths) >= 3) {
+			if (in_array($paths[1],explode(",","album,artist,track"))) {
+				$t["embeds"][] = "&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+			}
+			else if (count($paths) >= 5 && $paths[1] == "user" && $paths[3] == "playlist") {
+				$t["embeds"][] = "&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}:{$paths[3]}:{$paths[4]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+			}
+		}
+
 		// embed Twitch
-		if ($host == "twitch.tv" && !in_array($paths[1],explode(",",",login,directory,p,user,products,search"))
-		) {
+		if ($host == "twitch.tv" && !in_array($paths[1],explode(",",",directory,login,p,products,search,user"))) {
 			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 		}
 	}
@@ -215,6 +233,12 @@ function parse_tweet($tweet) {
 				$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
 			}
 		}
+	}
+
+	// embed Spotify (plain text uri)
+	preg_match_all("/spotify:(?:(?:album|artist|track):(?:[a-zA-Z0-9]+)|user:(?:[a-zA-Z0-9]+):playlist:(?:[a-zA-Z0-9]+))/", $t["text"], $matches);
+	foreach ($matches[0] as $uri) {
+		$t["embeds"][] = "&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 	}
 
 	// escape unescaped ampersands, this is necessary on some (only old?) tweets
@@ -338,7 +362,7 @@ foreach ($json as $tweet) {
 			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"instagram.com")) {
 				$title .= " &#x1F3A8;";
 			}
-			else if (strpos($embed,"soundcloud.com")) {
+			else if (strpos($embed,"soundcloud.com") || strpos($embed,"spotify.com")) {
 				$title .= " &#x1F3BC;";
 			}
 		}
