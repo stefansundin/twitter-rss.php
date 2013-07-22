@@ -190,11 +190,17 @@ function parse_tweet($tweet) {
 
 		// embed SoundCloud
 		if ($host == "soundcloud.com"
-		 && !in_array($paths[1],explode(",","apps,community-guidelines,creators,dashboard,explore,imprint,jobs,logout,messages,pages,people,premium,press,pro,search,settings,stream,terms-of-use,upload,you"))
-		 && (!isset($paths[2]) || !in_array($paths[2],explode(",","activity,comments,favorites,followers,following,groups,likes,sets,tracks")))
+		 && !in_array($paths[1],explode(",",",apps,community-guidelines,creators,dashboard,explore,imprint,jobs,logout,messages,pages,people,premium,press,pro,search,settings,stream,terms-of-use,upload,you"))
+		 && (!isset($paths[2]) || !in_array($paths[2],explode(",","activity,comments,favorites,followers,following,groups,likes,tracks")))
 		) {
 			$height = isset($paths[2])?166:450;
 			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$escaped_url\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+		}
+
+		// embed Twitch
+		if ($host == "twitch.tv" && !in_array($paths[1],explode(",",",login,directory,p,user,products,search"))
+		) {
+			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 		}
 	}
 
@@ -326,7 +332,7 @@ foreach ($json as $tweet) {
 	if (!empty($t["embeds"])) {
 		$content .= "\n&lt;br/>&lt;br/>\n".implode("\n&lt;br/>&lt;br/>\n", $t["embeds"]);
 		foreach ($t["embeds"] as $embed) {
-			if (strpos($embed,"youtube.com") || strpos($embed,"vimeo.com")) {
+			if (strpos($embed,"youtube.com") || strpos($embed,"vimeo.com") || strpos($embed,"twitch.tv")) {
 				$title .= " &#x1F3AC;";
 			}
 			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"instagram.com")) {
