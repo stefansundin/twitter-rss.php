@@ -142,6 +142,29 @@ function parse_tweet($tweet) {
 		"embeds"  => array()
 	);
 
+	if (!isset($tweet["entities"]["media"])) {
+		$tweet["entities"]["media"] = array();
+	}
+
+	// merge url arrays if this is a retweet (it happens that the retweet doesn't have the entities.urls array set, which is weird, it probably depends on the app that was used to post the tweet)
+	if (isset($tweet["retweeted_status"])) {
+		$tweet["entities"]["urls"] = array_merge($tweet["entities"]["urls"], $tweet["retweeted_status"]["entities"]["urls"]);
+		// make merged array array_unique()ifiable
+		array_walk($tweet["entities"]["urls"], function(&$v) {
+			unset($v["indices"]);
+		});
+		$tweet["entities"]["urls"] = array_unique($tweet["entities"]["urls"]);
+
+		// do the same thing to media
+		if (isset($tweet["retweeted_status"]["entities"]["media"])) {
+			$tweet["entities"]["media"] = array_merge($tweet["entities"]["media"], $tweet["retweeted_status"]["entities"]["media"]);
+			array_walk($tweet["entities"]["media"], function(&$v) {
+				unset($v["indices"]);
+			});
+			$tweet["entities"]["media"] = array_unique($tweet["entities"]["media"]);
+		}
+	}
+
 	// expand urls
 	foreach ($tweet["entities"]["urls"] as $url) {
 		unset($embed_id);
@@ -159,7 +182,7 @@ function parse_tweet($tweet) {
 			continue;
 		}
 
-		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]}\">$escaped_url&lt;/a>", $t["text"]);
+		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]} {$url["url"]}\">$escaped_url&lt;/a>", $t["text"]);
 		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
 
 		// embed YouTube
@@ -220,18 +243,21 @@ function parse_tweet($tweet) {
 		if ($host == "twitch.tv" && !in_array($paths[1],explode(",",",directory,login,p,products,search,user"))) {
 			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 		}
+
+		// embed Vine
+		if ($host == "vine.co" && $paths[1] == "v" && count($paths) >= 2) {
+			$t["embeds"][] = "&lt;iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/embed/simple\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+		}
 	}
 
 	// expand media (Twitter pics)
-	if (isset($tweet["entities"]["media"])) {
-		foreach ($tweet["entities"]["media"] as $url) {
-			$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
-			$t["text"] = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $t["text"]);
-			$t["embeds"][] = "&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>";
-
-			if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
-				$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
-			}
+	foreach ($tweet["entities"]["media"] as $url) {
+		$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
+		$t["text"] = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $t["text"]);
+		$t["embeds"][] = "&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>";
+		// replace url in title, can't use parse_url() to find the host since it doesn't use a protocol (will almost certainly always be pic.twitter.com though)
+		if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
+			$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
 		}
 	}
 
@@ -359,7 +385,7 @@ foreach ($json as $tweet) {
 			if (strpos($embed,"youtube.com") || strpos($embed,"vimeo.com") || strpos($embed,"twitch.tv")) {
 				$title .= " &#x1F3AC;";
 			}
-			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"instagram.com")) {
+			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"instagram.com") || strpos($embed,"vine.co")) {
 				$title .= " &#x1F3A8;";
 			}
 			else if (strpos($embed,"soundcloud.com") || strpos($embed,"spotify.com")) {
