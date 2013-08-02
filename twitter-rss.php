@@ -31,7 +31,7 @@ $access_token = "zzz";
 $access_token_secret = "xyz";
 
 
-#die(var_dump(get_headers("http://t.co/nan7rfQaps")));
+#die(var_dump(get_headers("http://t.co/VH6NIWVV6N")));
 
 if (!isset($_GET["user"])) {
 	die("Please specify user like twitter-rss.php?user=");
@@ -107,23 +107,25 @@ function resolve_url($url) {
 		}
 		$location = trim($parts[1]);
 
+		if ($location[0] == "/") {
+			// relative redirect
+			$location = preg_replace("/^([a-zA-Z]+:\/\/[^\/]+)(.*)$/", "$1$location", $url);
+		}
+
 		if (stripos($location,"://www.youtube.com/das_captcha") !== FALSE
 		 || stripos($location,"://www.nytimes.com/glogin") !== FALSE
-		 || stripos($location,"://www.facebook.com/unsupportedbrowser") !== FALSE) {
+		 || stripos($location,"://www.facebook.com/unsupportedbrowser") !== FALSE
+		 || stripos($location,"://play.spotify.com/error/browser-not-supported.php") !== FALSE
+		) {
 		 	// Stop at these redirections: (usually the last redirection, so we usually get the intended url anyway)
 			// YouTube captcha, will happen if the script is generating a lot of resolve_url() requests that lead to YouTube.
 			// nytimes.com has a bad reaction if it can't set cookies, and redirection loops ensues, just stop this madness
 			// Facebook redirects to unsupportedbrowser if it can't identify a known user agent
+			// Spotify is a little worse, as open.spotify.com doesn't even try to redirect to play.spotify.com if it's an unsupported user agent
 			break;
 		}
 
-		if ($location[0] == "/") {
-			// relative redirect, only change the path (Google Plus does this sometimes)
-			$url = preg_replace("/^([a-zA-Z]+:\/\/[^\/]+)(.*)$/", "$1$location", $url);
-		}
-		else {
-			$url = $location;
-		}
+		$url = $location;
 	}
 
 	// store resolved url in db
@@ -215,6 +217,11 @@ function parse_tweet($tweet) {
 			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://twitpic.com/show/large/{$matches[1]}.jpg\" />&lt;/a>";
 		}
 
+		// embed imgur
+		if ($host == "i.imgur.com" && !empty($paths[1])) {
+			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$expanded_url\" />&lt;/a>";
+		}
+
 		// embed Instagram
 		if ($host == "instagram.com" && preg_match("/\/p\/([^\/]+)/",$path,$matches) > 0) {
 			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$matches[1]}/media/?size=l\" />&lt;/a>";
@@ -230,7 +237,7 @@ function parse_tweet($tweet) {
 		}
 
 		// embed Spotify
-		if ($host == "play.spotify.com" && count($paths) >= 3) {
+		if (($host == "play.spotify.com" || $host == "open.spotify.com") && count($paths) >= 3) {
 			if (in_array($paths[1],explode(",","album,artist,track"))) {
 				$t["embeds"][] = "&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
@@ -385,7 +392,7 @@ foreach ($json as $tweet) {
 			if (strpos($embed,"youtube.com") || strpos($embed,"vimeo.com") || strpos($embed,"twitch.tv")) {
 				$title .= " &#x1F3AC;";
 			}
-			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"instagram.com") || strpos($embed,"vine.co")) {
+			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"imgur.com") || strpos($embed,"instagram.com") || strpos($embed,"vine.co")) {
 				$title .= " &#x1F3A8;";
 			}
 			else if (strpos($embed,"soundcloud.com") || strpos($embed,"spotify.com")) {
