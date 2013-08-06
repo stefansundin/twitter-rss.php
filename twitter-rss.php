@@ -15,6 +15,11 @@ Steps:
 6. Make sure the url resolution database is created. Otherwise you can try: touch twitter-rss.db; chmod 666 twitter-rss.db
 7. Set up the feeds in your favorite reader, using twitter-rss.php?user=
 
+To clean up the database (remove urls not seen in the last three days):
+sqlite3 twitter-rss.db "DELETE FROM urls WHERE last_seen < strftime('%s','now','-3 days'); VACUUM;"
+
+You may want to create an index (I have not seen any significant gains from it yet, so it's not done automatically):
+CREATE INDEX url ON urls (url)
 
 180 requests can be done per 15 minutes.
 TODO: Make sure we don't hit the limit.
@@ -44,10 +49,24 @@ try {
 	$db = new PDO("sqlite:twitter-rss.db");
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
+	$db->beginTransaction();
 } catch (PDOException $e) {
 	die("Database failed: ".$e->getMessage());
 }
 
+
+function double_explode($del1, $del2, $str) {
+	$res = array();
+	if (empty($str)) {
+		return $res;
+	}
+	$params = explode($del1, $str);
+	foreach ($params as $param) {
+		$part = explode($del2, $param, 2);
+		$res[$part[0]] = $part[1];
+	}
+	return $res;
+}
 
 function normalize_url($url) {
 	// make protocol and host lowercase and make sure the path has a slash at the end
@@ -169,15 +188,12 @@ function parse_tweet($tweet) {
 
 	// expand urls
 	foreach ($tweet["entities"]["urls"] as $url) {
-		unset($embed_id);
-		unset($embed_list);
-
 		$expanded_url = resolve_url($url["expanded_url"]);
 		$escaped_url = str_replace("&", "&amp;", $expanded_url);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
 		$paths = explode("/", $path);
-		$query = "?".parse_url($expanded_url, PHP_URL_QUERY);
+		$query = double_explode("&", "=", parse_url($expanded_url, PHP_URL_QUERY));
 
 		if ($host == "t.co") {
 			// probably cut-off in link retweet, ignore this url since it is invalid
@@ -189,21 +205,14 @@ function parse_tweet($tweet) {
 
 		// embed YouTube
 		if ($host == "youtube.com" || $host == "m.youtube.com") {
-			if (preg_match("/[\?&]v=([^&#]+)/",$query,$matches) > 0) {
-				$embed_id = $matches[1];
+			if (isset($query["v"]) && isset($query["list"])) {
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
-			if (preg_match("/[\?&]list=([^&#]+)/",$query,$matches) > 0) {
-				$embed_list = $matches[1];
+			else if (!isset($query["v"]) && isset($query["list"])) {
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
-
-			if (isset($embed_id) && isset($embed_list)) {
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
-			}
-			else if (!isset($embed_id) && isset($embed_list)) {
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list=$embed_list\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
-			}
-			else if (isset($embed_id) && !isset($embed_list)) {
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/$embed_id\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+			else if (isset($query["v"]) && !isset($query["list"])) {
+				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 			}
 		}
 
@@ -223,8 +232,13 @@ function parse_tweet($tweet) {
 		}
 
 		// embed Instagram
-		if ($host == "instagram.com" && preg_match("/\/p\/([^\/]+)/",$path,$matches) > 0) {
-			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$matches[1]}/media/?size=l\" />&lt;/a>";
+		if ($host == "instagram.com" && $paths[1] == "p" && count($paths) >= 2) {
+			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$paths[2]}/media/?size=l\" />&lt;/a>";
+		}
+
+		// embed PHHHOTO
+		if ($host == "phhhoto.com" && $paths[1] == "i" && count($paths) >= 2) {
+			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://s3.amazonaws.com/phhhoto-gifs/{$paths[2]}/original/hh.gif\" />&lt;/a>";
 		}
 
 		// embed SoundCloud
@@ -392,7 +406,7 @@ foreach ($json as $tweet) {
 			if (strpos($embed,"youtube.com") || strpos($embed,"vimeo.com") || strpos($embed,"twitch.tv")) {
 				$title .= " &#x1F3AC;";
 			}
-			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"imgur.com") || strpos($embed,"instagram.com") || strpos($embed,"vine.co")) {
+			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"imgur.com") || strpos($embed,"instagram.com") || strpos($embed,"vine.co") || strpos($embed,"phhhoto.com")) {
 				$title .= " &#x1F3A8;";
 			}
 			else if (strpos($embed,"soundcloud.com") || strpos($embed,"spotify.com")) {
@@ -427,3 +441,4 @@ echo <<<END
 
 END;
 
+$db->commit();
