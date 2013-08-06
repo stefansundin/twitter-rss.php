@@ -63,6 +63,12 @@ function double_explode($del1, $del2, $str) {
 	$params = explode($del1, $str);
 	foreach ($params as $param) {
 		$part = explode($del2, $param, 2);
+		if (empty($part[0]) && !isset($part[1])) {
+			continue;
+		}
+		if (!isset($part[1])) {
+			$part[1] = NULL;
+		}
 		$res[$part[0]] = $part[1];
 	}
 	return $res;
