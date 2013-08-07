@@ -176,19 +176,21 @@ function parse_tweet($tweet) {
 	// merge url arrays if this is a retweet (it happens that the retweet doesn't have the entities.urls array set, which is weird, it probably depends on the app that was used to post the tweet)
 	if (isset($tweet["retweeted_status"])) {
 		$tweet["entities"]["urls"] = array_merge($tweet["entities"]["urls"], $tweet["retweeted_status"]["entities"]["urls"]);
-		// make merged array array_unique()ifiable
-		array_walk($tweet["entities"]["urls"], function(&$v) {
-			unset($v["indices"]);
-		});
-		$tweet["entities"]["urls"] = array_unique($tweet["entities"]["urls"]);
+		// remove any duplicate urls
+		$urls = array();
+		foreach ($tweet["entities"]["urls"] as $url) {
+			$urls[$url["url"]] = $url;
+		}
+		$tweet["entities"]["urls"] = array_values($urls);
 
 		// do the same thing to media
 		if (isset($tweet["retweeted_status"]["entities"]["media"])) {
 			$tweet["entities"]["media"] = array_merge($tweet["entities"]["media"], $tweet["retweeted_status"]["entities"]["media"]);
-			array_walk($tweet["entities"]["media"], function(&$v) {
-				unset($v["indices"]);
-			});
-			$tweet["entities"]["media"] = array_unique($tweet["entities"]["media"]);
+			$urls = array();
+			foreach ($tweet["entities"]["media"] as $url) {
+				$urls[$url["url"]] = $url;
+			}
+			$tweet["entities"]["media"] = array_values($urls);
 		}
 	}
 
