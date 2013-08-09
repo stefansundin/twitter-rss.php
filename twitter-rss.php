@@ -83,7 +83,7 @@ function normalize_url($url) {
 	return $url;
 }
 
-function resolve_url($url) {
+function resolve_url($url, $force=false) {
 	global $db;
 	$original_url = $url = normalize_url($url);
 	#ini_set("user_agent", "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:22.0) Gecko/20100101 Firefox/22.0"); // wp.me
@@ -98,13 +98,15 @@ function resolve_url($url) {
 	*/
 
 	// try to get resolved url from db
-	$stmt = $db->prepare("SELECT resolved FROM urls WHERE url=?");
-	$stmt->execute(array($url));
-	$row = $stmt->fetch(PDO::FETCH_ASSOC);
-	if ($row !== FALSE) {
-		$stmt = $db->prepare("UPDATE urls SET last_seen=? WHERE url=?");
-		$stmt->execute(array(time(), $url));
-		return $row["resolved"];
+	if (!$force) {
+		$stmt = $db->prepare("SELECT resolved FROM urls WHERE url=?");
+		$stmt->execute(array($url));
+		$row = $stmt->fetch(PDO::FETCH_ASSOC);
+		if ($row !== FALSE) {
+			$stmt = $db->prepare("UPDATE urls SET last_seen=? WHERE url=?");
+			$stmt->execute(array(time(), $url));
+			return $row["resolved"];
+		}
 	}
 
 	// get the headers
@@ -160,10 +162,15 @@ function resolve_url($url) {
 	return $url;
 }
 
+/*
+echo resolve_url("http://tinyurl.com/kfhwhdm", true);
+$db->commit();
+die();
+*/
+
 function parse_tweet($tweet) {
 	$t = array(
 		"user"    => $tweet["user"]["screen_name"],
-		"updated" => date("c", strtotime($tweet["created_at"])),
 		"title"   => $tweet["text"],
 		"text"    => $tweet["text"],
 		"embeds"  => array()
@@ -171,27 +178,6 @@ function parse_tweet($tweet) {
 
 	if (!isset($tweet["entities"]["media"])) {
 		$tweet["entities"]["media"] = array();
-	}
-
-	// merge url arrays if this is a retweet (it happens that the retweet doesn't have the entities.urls array set, which is weird, it probably depends on the app that was used to post the tweet)
-	if (isset($tweet["retweeted_status"])) {
-		$tweet["entities"]["urls"] = array_merge($tweet["entities"]["urls"], $tweet["retweeted_status"]["entities"]["urls"]);
-		// remove any duplicate urls
-		$urls = array();
-		foreach ($tweet["entities"]["urls"] as $url) {
-			$urls[$url["url"]] = $url;
-		}
-		$tweet["entities"]["urls"] = array_values($urls);
-
-		// do the same thing to media
-		if (isset($tweet["retweeted_status"]["entities"]["media"])) {
-			$tweet["entities"]["media"] = array_merge($tweet["entities"]["media"], $tweet["retweeted_status"]["entities"]["media"]);
-			$urls = array();
-			foreach ($tweet["entities"]["media"] as $url) {
-				$urls[$url["url"]] = $url;
-			}
-			$tweet["entities"]["media"] = array_values($urls);
-		}
 	}
 
 	// expand urls
@@ -203,50 +189,60 @@ function parse_tweet($tweet) {
 		$paths = explode("/", $path);
 		$query = double_explode("&", "=", parse_url($expanded_url, PHP_URL_QUERY));
 
-		if ($host == "t.co") {
-			// probably cut-off in link retweet, ignore this url since it is invalid
-			continue;
-		}
-
 		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]} {$url["url"]}\">$escaped_url&lt;/a>", $t["text"]);
 		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
 
 		// embed YouTube
 		if ($host == "youtube.com" || $host == "m.youtube.com") {
 			if (isset($query["v"]) && isset($query["list"])) {
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+				$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
 			}
 			else if (!isset($query["v"]) && isset($query["list"])) {
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+				$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
 			}
 			else if (isset($query["v"]) && !isset($query["list"])) {
-				$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+				$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
 			}
 		}
 
 		// embed Vimeo
 		if ($host == "vimeo.com" && preg_match("/\/(\d+)/",$path,$matches) > 0) {
-			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/{$matches[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/{$matches[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
+		}
+
+		// embed Twitch
+		if ($host == "twitch.tv" && !in_array($paths[1],explode(",",",directory,login,p,products,search,user"))) {
+			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
 		}
 
 		// embed TwitPic
 		if ($host == "twitpic.com" && preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
-			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://twitpic.com/show/large/{$matches[1]}.jpg\" />&lt;/a>";
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://twitpic.com/show/large/{$matches[1]}.jpg\" />&lt;/a>", "picture");
 		}
 
 		// embed imgur
 		if ($host == "i.imgur.com" && !empty($paths[1])) {
-			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$expanded_url\" />&lt;/a>";
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$expanded_url\" />&lt;/a>", "picture");
 		}
 
 		// embed Instagram
 		if ($host == "instagram.com" && $paths[1] == "p" && count($paths) >= 2) {
-			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$paths[2]}/media/?size=l\" />&lt;/a>";
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$paths[2]}/media/?size=l\" />&lt;/a>", "picture");
+		}
+
+		// embed Vine
+		if ($host == "vine.co" && $paths[1] == "v" && count($paths) >= 2) {
+			$t["embeds"][] = array("&lt;iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/embed/simple\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "picture");
 		}
 
 		// embed PHHHOTO
 		if ($host == "phhhoto.com" && $paths[1] == "i" && count($paths) >= 2) {
-			$t["embeds"][] = "&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://s3.amazonaws.com/phhhoto-gifs/{$paths[2]}/original/hh.gif\" />&lt;/a>";
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://s3.amazonaws.com/phhhoto-gifs/{$paths[2]}/original/hh.gif\" />&lt;/a>", "picture");
+		}
+
+		// embed ow.ly
+		if ($host == "ow.ly" && $paths[1] == "i" && count($paths) >= 2) {
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"http://static.ow.ly/photos/normal/{$paths[2]}.jpg\" />&lt;/a>", "picture");
 		}
 
 		// embed SoundCloud
@@ -255,27 +251,17 @@ function parse_tweet($tweet) {
 		 && (!isset($paths[2]) || !in_array($paths[2],explode(",","activity,comments,favorites,followers,following,groups,likes,tracks")))
 		) {
 			$height = isset($paths[2])?166:450;
-			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$escaped_url\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$escaped_url\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
 		}
 
 		// embed Spotify
 		if (($host == "play.spotify.com" || $host == "open.spotify.com") && count($paths) >= 3) {
 			if (in_array($paths[1],explode(",","album,artist,track"))) {
-				$t["embeds"][] = "&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
 			}
 			else if (count($paths) >= 5 && $paths[1] == "user" && $paths[3] == "playlist") {
-				$t["embeds"][] = "&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}:{$paths[3]}:{$paths[4]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}:{$paths[3]}:{$paths[4]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
 			}
-		}
-
-		// embed Twitch
-		if ($host == "twitch.tv" && !in_array($paths[1],explode(",",",directory,login,p,products,search,user"))) {
-			$t["embeds"][] = "&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
-		}
-
-		// embed Vine
-		if ($host == "vine.co" && $paths[1] == "v" && count($paths) >= 2) {
-			$t["embeds"][] = "&lt;iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/embed/simple\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
 		}
 	}
 
@@ -283,7 +269,7 @@ function parse_tweet($tweet) {
 	foreach ($tweet["entities"]["media"] as $url) {
 		$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
 		$t["text"] = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $t["text"]);
-		$t["embeds"][] = "&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>";
+		$t["embeds"][] = array("&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>", "picture");
 		// replace url in title, can't use parse_url() to find the host since it doesn't use a protocol (will almost certainly always be pic.twitter.com though)
 		if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
 			$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
@@ -293,7 +279,7 @@ function parse_tweet($tweet) {
 	// embed Spotify (plain text uri)
 	preg_match_all("/spotify:(?:(?:album|artist|track):(?:[a-zA-Z0-9]+)|user:(?:[a-zA-Z0-9]+):playlist:(?:[a-zA-Z0-9]+))/", $t["text"], $matches);
 	foreach ($matches[0] as $uri) {
-		$t["embeds"][] = "&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" allowfullscreen>&lt;/iframe>";
+		$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
 	}
 
 	// escape unescaped ampersands, this is necessary on some (only old?) tweets
@@ -314,9 +300,9 @@ $query = array(
 	"screen_name" => $user,
 	"count" => 200, // max 200
 	"include_rts" => true, // include retweets
-	//"trim_user" => true,
-	//"exclude_replies" => true,
-	//"contributor_details" => true,
+	#"trim_user" => true,
+	#"exclude_replies" => true,
+	#"contributor_details" => true,
 );
 $oauth = array(
 	"oauth_consumer_key" => $consumer_key,
@@ -394,33 +380,28 @@ END;
 
 foreach ($json as $tweet) {
 	$id = $tweet["id_str"];
-	$t = parse_tweet($tweet);
-	$title = "{$t["user"]}: {$t["title"]}";
-	$content = "{$t["user"]}: {$t["text"]}";
+	$updated = date("c", strtotime($tweet["created_at"]));
 
 	if (isset($tweet["retweeted_status"])) {
-		$rt = parse_tweet($tweet["retweeted_status"]);
-		$content .= "\n&lt;br/>&lt;br/>\n{$rt["user"]}: {$rt["text"]}";
-		$t["embeds"] = array_unique(array_merge($t["embeds"], $rt["embeds"]));
+		$t = parse_tweet($tweet["retweeted_status"]);
+		$title = "{$t["user"]}: RT @{$tweet["retweeted_status"]["user"]["screen_name"]}: {$t["title"]}";
+		$content = "{$t["user"]}: RT @{$tweet["retweeted_status"]["user"]["screen_name"]}: {$t["text"]}";
 	}
+	else {
+		$t = parse_tweet($tweet);
+		$title = "{$t["user"]}: {$t["title"]}";
+		$content = "{$t["user"]}: {$t["text"]}";
+	}
+
 
 	if (isset($tweet["in_reply_to_screen_name"])) {
 		$content .= "\n&lt;br/>&lt;br/>\nIn reply to: &lt;a href=\"https://twitter.com/{$tweet["in_reply_to_screen_name"]}/status/{$tweet["in_reply_to_status_id_str"]}\">https://twitter.com/{$tweet["in_reply_to_screen_name"]}/status/{$tweet["in_reply_to_status_id_str"]}&lt;/a>";
 	}
 
-	if (!empty($t["embeds"])) {
-		$content .= "\n&lt;br/>&lt;br/>\n".implode("\n&lt;br/>&lt;br/>\n", $t["embeds"]);
-		foreach ($t["embeds"] as $embed) {
-			if (strpos($embed,"youtube.com") || strpos($embed,"vimeo.com") || strpos($embed,"twitch.tv")) {
-				$title .= " &#x1F3AC;";
-			}
-			else if (strpos($embed,"pic.twitter.com") || strpos($embed,"twitpic.com") || strpos($embed,"imgur.com") || strpos($embed,"instagram.com") || strpos($embed,"vine.co") || strpos($embed,"phhhoto.com")) {
-				$title .= " &#x1F3A8;";
-			}
-			else if (strpos($embed,"soundcloud.com") || strpos($embed,"spotify.com")) {
-				$title .= " &#x1F3BC;";
-			}
-		}
+	foreach ($t["embeds"] as $embed) {
+		$content .= "\n&lt;br/>&lt;br/>\n{$embed[0]}";
+		$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;");
+		$title .= " {$icons[$embed[1]]}";
 	}
 
 	$content .= "\n&lt;br/>&lt;br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
@@ -430,8 +411,8 @@ foreach ($json as $tweet) {
 	<entry>
 		<id>https://twitter.com/$user/status/$id</id>
 		<link href="https://twitter.com/$user/status/$id" />
-		<updated>{$t["updated"]}</updated>
-		<author><name>{$t["user"]}</name></author>
+		<updated>$updated</updated>
+		<author><name>$user</name></author>
 		<title>$title</title>
 		<content type="html">
 $content
