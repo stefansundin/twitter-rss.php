@@ -384,13 +384,13 @@ foreach ($json as $tweet) {
 
 	if (isset($tweet["retweeted_status"])) {
 		$t = parse_tweet($tweet["retweeted_status"]);
-		$title = "{$t["user"]}: RT @{$tweet["retweeted_status"]["user"]["screen_name"]}: {$t["title"]}";
-		$content = "{$t["user"]}: RT @{$tweet["retweeted_status"]["user"]["screen_name"]}: {$t["text"]}";
+		$title = "$user: RT @{$t["user"]}: {$t["title"]}";
+		$content = "$user: RT @{$t["user"]}: {$t["text"]}";
 	}
 	else {
 		$t = parse_tweet($tweet);
-		$title = "{$t["user"]}: {$t["title"]}";
-		$content = "{$t["user"]}: {$t["text"]}";
+		$title = "$user: {$t["title"]}";
+		$content = "$user: {$t["text"]}";
 	}
 
 
