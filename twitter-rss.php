@@ -186,7 +186,7 @@ function parse_tweet($tweet) {
 		$escaped_url = str_replace("&", "&amp;", $expanded_url);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
-		$paths = explode("/", $path);
+		$paths = explode("/", substr($path,1));
 		$query = double_explode("&", "=", parse_url($expanded_url, PHP_URL_QUERY));
 
 		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]} {$url["url"]}\">$escaped_url&lt;/a>", $t["text"]);
@@ -211,8 +211,8 @@ function parse_tweet($tweet) {
 		}
 
 		// embed Twitch
-		if ($host == "twitch.tv" && !in_array($paths[1],explode(",",",directory,login,p,products,search,user"))) {
-			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
+		if ($host == "twitch.tv" && !in_array($paths[0],explode(",",",directory,login,p,products,search,user"))) {
+			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[0]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
 		}
 
 		// embed TwitPic
@@ -221,46 +221,47 @@ function parse_tweet($tweet) {
 		}
 
 		// embed imgur
-		if ($host == "i.imgur.com" && !empty($paths[1])) {
+		if ($host == "i.imgur.com" && !empty($paths[0])) {
 			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$expanded_url\" />&lt;/a>", "picture");
 		}
 
 		// embed Instagram
-		if ($host == "instagram.com" && $paths[1] == "p" && count($paths) >= 2) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$paths[2]}/media/?size=l\" />&lt;/a>", "picture");
+		if ($host == "instagram.com" && $paths[0] == "p" && count($paths) >= 2) {
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$paths[1]}/media/?size=l\" />&lt;/a>", "picture");
 		}
 
 		// embed Vine
-		if ($host == "vine.co" && $paths[1] == "v" && count($paths) >= 2) {
+		if ($host == "vine.co" && $paths[0] == "v" && count($paths) >= 2) {
 			$t["embeds"][] = array("&lt;iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/embed/simple\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "picture");
 		}
 
 		// embed PHHHOTO
-		if ($host == "phhhoto.com" && $paths[1] == "i" && count($paths) >= 2) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://s3.amazonaws.com/phhhoto-gifs/{$paths[2]}/original/hh.gif\" />&lt;/a>", "picture");
+		if ($host == "phhhoto.com" && $paths[0] == "i" && count($paths) >= 2) {
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://s3.amazonaws.com/phhhoto-gifs/{$paths[1]}/original/hh.gif\" />&lt;/a>", "picture");
 		}
 
 		// embed ow.ly
-		if ($host == "ow.ly" && $paths[1] == "i" && count($paths) >= 2) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"http://static.ow.ly/photos/normal/{$paths[2]}.jpg\" />&lt;/a>", "picture");
+		if ($host == "ow.ly" && $paths[0] == "i" && count($paths) >= 2) {
+			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"http://static.ow.ly/photos/normal/{$paths[1]}.jpg\" />&lt;/a>", "picture");
 		}
 
 		// embed SoundCloud
 		if ($host == "soundcloud.com"
-		 && !in_array($paths[1],explode(",",",apps,community-guidelines,creators,dashboard,explore,imprint,jobs,logout,messages,pages,people,premium,press,pro,search,settings,stream,terms-of-use,upload,you"))
-		 && (!isset($paths[2]) || !in_array($paths[2],explode(",","activity,comments,favorites,followers,following,groups,likes,tracks")))
+		 && !in_array($paths[0],explode(",",",apps,community-guidelines,creators,dashboard,explore,imprint,jobs,logout,messages,pages,people,premium,press,pro,search,settings,stream,terms-of-use,upload,you"))
+		 && (!isset($paths[1]) || !in_array($paths[1],explode(",","activity,comments,favorites,followers,following,groups,likes,tracks")))
+		 && count($paths) <= 2
 		) {
-			$height = isset($paths[2])?166:450;
+			$height = isset($paths[1])?166:450;
 			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$escaped_url\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
 		}
 
 		// embed Spotify
-		if (($host == "play.spotify.com" || $host == "open.spotify.com") && count($paths) >= 3) {
-			if (in_array($paths[1],explode(",","album,artist,track"))) {
-				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
+		if (($host == "play.spotify.com" || $host == "open.spotify.com") && count($paths) >= 2) {
+			if (in_array($paths[0],explode(",","album,artist,track"))) {
+				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[0]}:{$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
 			}
-			else if (count($paths) >= 5 && $paths[1] == "user" && $paths[3] == "playlist") {
-				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[1]}:{$paths[2]}:{$paths[3]}:{$paths[4]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
+			else if (count($paths) >= 4 && $paths[0] == "user" && $paths[2] == "playlist") {
+				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[0]}:{$paths[1]}:{$paths[2]}:{$paths[3]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
 			}
 		}
 	}
