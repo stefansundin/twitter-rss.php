@@ -12,8 +12,8 @@ Steps:
 3. Copy consumer key and consumer secret to variables below.
 4. Create an access token on the bottom of the app page.
 5. Copy the access token and its secret to the variables below.
-6. Make sure the url resolution database is created. Otherwise you can try: touch twitter-rss.db; chmod 666 twitter-rss.db
-7. Set up the feeds in your favorite reader, using twitter-rss.php?user=
+6. Set up the feeds in your favorite reader, using twitter-rss.php?user=
+7. Make sure the url resolution database is created. Otherwise you can try: touch twitter-rss.db; chmod 666 twitter-rss.db
 
 To clean up the database (remove urls not seen in the last three days):
 sqlite3 twitter-rss.db "DELETE FROM urls WHERE last_seen < strftime('%s','now','-3 days'); VACUUM;"
@@ -36,7 +36,7 @@ $access_token = "zzz";
 $access_token_secret = "xyz";
 
 
-#die(var_dump(get_headers("http://t.co/VH6NIWVV6N")));
+#die(var_dump(get_headers("http://t.co/MdsjIIVkjO")));
 
 if (!isset($_GET["user"])) {
 	die("Please specify user like twitter-rss.php?user=");
@@ -49,6 +49,7 @@ try {
 	$db = new PDO("sqlite:twitter-rss.db");
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE, channel_id INTEGER)");
 	$db->beginTransaction();
 } catch (PDOException $e) {
 	die("Database failed: ".$e->getMessage());
@@ -143,6 +144,7 @@ function resolve_url($url, $force=false) {
 		 || stripos($location,"://www.nytimes.com/glogin") !== FALSE
 		 || stripos($location,"://www.facebook.com/unsupportedbrowser") !== FALSE
 		 || stripos($location,"://play.spotify.com/error/browser-not-supported.php") !== FALSE
+		// TODO: Stop at blogspot country TLD redirect?
 		) {
 		 	// Stop at these redirections: (usually the last redirection, so we usually get the intended url anyway)
 			// YouTube captcha, will happen if the script is generating a lot of resolve_url() requests that lead to YouTube.
@@ -169,6 +171,7 @@ die();
 */
 
 function parse_tweet($tweet) {
+	global $db;
 	$t = array(
 		"user"    => $tweet["user"]["screen_name"],
 		"title"   => $tweet["text"],
@@ -183,94 +186,140 @@ function parse_tweet($tweet) {
 	// expand urls
 	foreach ($tweet["entities"]["urls"] as $url) {
 		$expanded_url = resolve_url($url["expanded_url"]);
-		$escaped_url = str_replace("&", "&amp;", $expanded_url);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
-		$paths = explode("/", substr($path,1));
+		$paths = explode("/", trim($path,"/"));
 		$query = double_explode("&", "=", parse_url($expanded_url, PHP_URL_QUERY));
 
-		$t["text"] = str_replace($url["url"], "&lt;a href=\"$escaped_url\" title=\"{$url["display_url"]} {$url["url"]}\">$escaped_url&lt;/a>", $t["text"]);
+		$t["text"] = str_replace($url["url"], "<a href=\"$expanded_url\" title=\"{$url["display_url"]} {$url["url"]}\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
 		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
 
 		// embed YouTube
-		if ($host == "youtube.com" || $host == "m.youtube.com") {
-			if (isset($query["v"]) && isset($query["list"])) {
-				$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
-			}
-			else if (!isset($query["v"]) && isset($query["list"])) {
-				$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/videoseries?list={$query["list"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
-			}
-			else if (isset($query["v"]) && !isset($query["list"])) {
-				$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://www.youtube.com/embed/{$query["v"]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
-			}
+		if (($host == "youtube.com" || $host == "m.youtube.com") && (isset($query["v"]) || isset($query["list"]))) {
+			$embed_url = "https://www.youtube.com/embed/".(isset($query["v"])?$query["v"]:"videoseries")."?".(isset($query["list"])?"list={$query["list"]}":"").(isset($query["t"])?"start={$query["t"]}":"");
+			$t["embeds"][] = array("<iframe width=\"853\" height=\"480\" src=\"$embed_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 		}
 
 		// embed Vimeo
 		if ($host == "vimeo.com" && preg_match("/\/(\d+)/",$path,$matches) > 0) {
-			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/{$matches[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
+			$t["embeds"][] = array("<iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/{$matches[1]}\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 		}
 
 		// embed Twitch
-		if ($host == "twitch.tv" && !in_array($paths[0],explode(",",",directory,login,p,products,search,user"))) {
-			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"512\" src=\"http://twitch.tv/embed?channel={$paths[0]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "video");
+		if ($host == "twitch.tv" && !in_array($paths[0],explode(",",",directory,embed,login,p,products,search,user"))
+		 && !(isset($paths[1]) && $paths[1] == "b" && (!isset($paths[2]) || !is_numeric($paths[2])))) {
+			if (isset($paths[1]) && $paths[1] == "b") {
+				$embed_url = "http://www.twitch.tv/archive/archive_popout?id={$paths[2]}";
+			}
+			else {
+				$embed_url = "$expanded_url/popout?";
+			}
+			if (isset($query["t"])) {
+				$embed_url .= "&t={$query["t"]}";
+			}
+			$t["embeds"][] = array("<iframe width=\"853\" height=\"512\" src=\"$embed_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+		}
+
+		// embed Ustream
+		if ($host == "ustream.tv" && !in_array($paths[0],explode(",",",blog,contact-us,copyright-policy,forgot-password,forgot-username,howto,information,login-signup,new,our-company,platform,premium-membership,press,privacy-policy,producer,services,terms,user,ustream-pro"))
+		 && !($paths[0] == "channel" && !isset($paths[1]))) {
+			if ($paths[0] == "recorded" && isset($paths[1]) && is_numeric($paths[1])) {
+				$t["embeds"][] = array("<iframe width=\"480\" height=\"302\" src=\"http://www.ustream.tv/embed$path?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+			}
+			else {
+				$channel_name = strtolower(rawurldecode(($paths[0] == "channel")?$paths[1]:$paths[0]));
+				$stmt = $db->prepare("SELECT channel_id FROM ustream WHERE channel_name=?");
+				$stmt->execute(array($channel_name));
+				$row = $stmt->fetch(PDO::FETCH_ASSOC);
+				if ($row !== FALSE) {
+					$channel_id = $row["channel_id"];
+				}
+				else {
+					$code = file_get_contents($expanded_url); // we could maybe use the ustream API here, but that requires a key so this is fine
+					if (preg_match("/ name=\"ustream:channel_id\" content=\"(\d+)\"/",$code,$matches) > 0) {
+						$channel_id = $matches[1];
+					}
+					else {
+						$channel_id = NULL;
+					}
+					$stmt = $db->prepare("INSERT OR REPLACE INTO ustream VALUES (NULL,?,?)");
+					$stmt->execute(array($channel_name, $channel_id));
+				}
+				if ($channel_id != NULL) {
+					$t["embeds"][] = array("<iframe width=\"480\" height=\"302\" src=\"http://www.ustream.tv/embed/$channel_id?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+				}
+			}
 		}
 
 		// embed TwitPic
 		if ($host == "twitpic.com" && preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://twitpic.com/show/large/{$matches[1]}.jpg\" />&lt;/a>", "picture");
+			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://twitpic.com/show/large/{$matches[1]}.jpg\" /></a>", "picture");
 		}
 
 		// embed imgur
 		if ($host == "i.imgur.com" && !empty($paths[0])) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"$expanded_url\" />&lt;/a>", "picture");
+			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url\" /></a>", "picture");
 		}
 
-		// embed Instagram
-		if ($host == "instagram.com" && $paths[0] == "p" && count($paths) >= 2) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://instagr.am/p/{$paths[1]}/media/?size=l\" />&lt;/a>", "picture");
-		}
+		if (count($paths) >= 2) {
+			// embed Instagram
+			if ($host == "instagram.com" && $paths[0] == "p") {
+				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://instagr.am/p/{$paths[1]}/media/?size=l\" /></a>", "picture");
+			}
 
-		// embed Vine
-		if ($host == "vine.co" && $paths[0] == "v" && count($paths) >= 2) {
-			$t["embeds"][] = array("&lt;iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/embed/simple\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "picture");
-		}
+			// embed Vine
+			if ($host == "vine.co" && $paths[0] == "v") {
+				$t["embeds"][] = array("<iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/embed/simple\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+			}
 
-		// embed PHHHOTO
-		if ($host == "phhhoto.com" && $paths[0] == "i" && count($paths) >= 2) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"https://s3.amazonaws.com/phhhoto-gifs/{$paths[1]}/original/hh.gif\" />&lt;/a>", "picture");
-		}
+			// embed PHHHOTO
+			if ($host == "phhhoto.com" && $paths[0] == "i") {
+				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://s3.amazonaws.com/phhhoto-gifs/{$paths[1]}/original/hh.gif\" /></a>", "picture");
+			}
 
-		// embed ow.ly
-		if ($host == "ow.ly" && $paths[0] == "i" && count($paths) >= 2) {
-			$t["embeds"][] = array("&lt;a href=\"$expanded_url\" title=\"$expanded_url\">&lt;img src=\"http://static.ow.ly/photos/normal/{$paths[1]}.jpg\" />&lt;/a>", "picture");
+			// embed ow.ly
+			if ($host == "ow.ly" && $paths[0] == "i") {
+				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"http://static.ow.ly/photos/normal/{$paths[1]}.jpg\" /></a>", "picture");
+			}
+
+			// embed flickr
+			// flickr blocks iframe embeds, so hide referer by using a website which does a meta refresh
+			if ($host == "flickr.com" && $paths[0] == "photos") {
+				if (count($paths) == 2 || (count($paths) >= 4 && $paths[2] == "sets")) {
+					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide_referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+				}
+				else if (count($paths) >= 3 && (is_numeric($paths[2]) || $paths[2] == "favorites" || (count($paths) >= 4 && $paths[2] == "galleries"))) {
+					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide_referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+				}
+			}
+
+			// embed Spotify
+			if (($host == "play.spotify.com" || $host == "open.spotify.com")) {
+				if (in_array($paths[0],explode(",","album,artist,track"))) {
+					$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[0]}:{$paths[1]}\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
+				}
+				else if (count($paths) >= 4 && $paths[0] == "user" && $paths[2] == "playlist") {
+					$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[0]}:{$paths[1]}:{$paths[2]}:{$paths[3]}\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
+				}
+			}
 		}
 
 		// embed SoundCloud
 		if ($host == "soundcloud.com"
 		 && !in_array($paths[0],explode(",",",apps,community-guidelines,creators,dashboard,explore,imprint,jobs,logout,messages,pages,people,premium,press,pro,search,settings,stream,terms-of-use,upload,you"))
 		 && (!isset($paths[1]) || !in_array($paths[1],explode(",","activity,comments,favorites,followers,following,groups,likes,tracks")))
-		 && count($paths) <= 2
+		 && !($paths[0] == "groups" && isset($paths[2]) && in_array($paths[2],explode(",","tracks,discussion,info,dropbox")))
 		) {
 			$height = isset($paths[1])?166:450;
-			$t["embeds"][] = array("&lt;iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$escaped_url\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
-		}
-
-		// embed Spotify
-		if (($host == "play.spotify.com" || $host == "open.spotify.com") && count($paths) >= 2) {
-			if (in_array($paths[0],explode(",","album,artist,track"))) {
-				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[0]}:{$paths[1]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
-			}
-			else if (count($paths) >= 4 && $paths[0] == "user" && $paths[2] == "playlist") {
-				$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[0]}:{$paths[1]}:{$paths[2]}:{$paths[3]}\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
-			}
+			$t["embeds"][] = array("<iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 		}
 	}
 
 	// expand media (Twitter pics)
 	foreach ($tweet["entities"]["media"] as $url) {
 		$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
-		$t["text"] = str_replace($url["url"], "&lt;a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\">https://{$url["display_url"]}&lt;/a>", $t["text"]);
-		$t["embeds"][] = array("&lt;a href=\"$media_url\" title=\"{$url["display_url"]}\">&lt;img src=\"$media_url\" />&lt;/a>", "picture");
+		$t["text"] = str_replace($url["url"], "<a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\" rel=\"noreferrer\">https://{$url["display_url"]}</a>", $t["text"]);
+		$t["embeds"][] = array("<a href=\"$media_url\" title=\"{$url["display_url"]}\" rel=\"noreferrer\"><img src=\"$media_url\" /></a>", "picture");
 		// replace url in title, can't use parse_url() to find the host since it doesn't use a protocol (will almost certainly always be pic.twitter.com though)
 		if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
 			$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
@@ -280,12 +329,8 @@ function parse_tweet($tweet) {
 	// embed Spotify (plain text uri)
 	preg_match_all("/spotify:(?:(?:album|artist|track):(?:[a-zA-Z0-9]+)|user:(?:[a-zA-Z0-9]+):playlist:(?:[a-zA-Z0-9]+))/", $t["text"], $matches);
 	foreach ($matches[0] as $uri) {
-		$t["embeds"][] = array("&lt;iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" allowfullscreen>&lt;/iframe>", "audio");
+		$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 	}
-
-	// escape unescaped ampersands, this is necessary on some (only old?) tweets
-	$t["title"] = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $t["title"]);
-	$t["text"] = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $t["text"]);
 
 	return $t;
 }
@@ -394,18 +439,28 @@ foreach ($json as $tweet) {
 		$content = "$user: {$t["text"]}";
 	}
 
-
 	if (isset($tweet["in_reply_to_screen_name"])) {
-		$content .= "\n&lt;br/>&lt;br/>\nIn reply to: &lt;a href=\"https://twitter.com/{$tweet["in_reply_to_screen_name"]}/status/{$tweet["in_reply_to_status_id_str"]}\">https://twitter.com/{$tweet["in_reply_to_screen_name"]}/status/{$tweet["in_reply_to_status_id_str"]}&lt;/a>";
+		$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}/".(isset($tweet["in_reply_to_status_id_str"]) ? "status/{$tweet["in_reply_to_status_id_str"]}" : "");
+		$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
 	}
 
 	foreach ($t["embeds"] as $embed) {
-		$content .= "\n&lt;br/>&lt;br/>\n{$embed[0]}";
+		$content .= "\n<br/><br/>\n{$embed[0]}";
+		if (stripos($embed[0],"src=\"http://") !== FALSE) {
+			$content .= "<br/>\n<small>This embed does not use https. If it isn't displayed, make sure your browser does not block mixed content.</small>";
+		}
+
 		$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;");
 		$title .= " {$icons[$embed[1]]}";
 	}
 
-	$content .= "\n&lt;br/>&lt;br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
+	$content .= "\n<br/><br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
+
+	// escape stuff
+	$title = str_replace("<", "&lt;", $title);
+	$content = str_replace("<", "&lt;", $content);
+	$title = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $title);
+	$content = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $content);
 
 	echo <<<END
 
