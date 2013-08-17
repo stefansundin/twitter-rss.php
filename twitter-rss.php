@@ -326,7 +326,7 @@ function parse_tweet($tweet) {
 		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_,search,about"))) {
 			if ($paths[0] == "pin") {
 				if (isset($paths[1]) && is_numeric($paths[1])) {
-					$t["embeds"][] = array("<iframe width=\"270\" height=\"500\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"270\" height=\"500\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "picture");
 				}
 			}
 			else if (count($paths) == 1) {
@@ -362,10 +362,10 @@ function parse_tweet($tweet) {
 			// flickr blocks iframe embeds, so hide referer by using a website which does a meta refresh
 			if ($host == "flickr.com" && $paths[0] == "photos") {
 				if (count($paths) == 2 || (count($paths) >= 4 && $paths[2] == "sets")) {
-					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 				}
 				else if (count($paths) >= 3 && (is_numeric($paths[2]) || $paths[2] == "favorites" || (count($paths) >= 4 && $paths[2] == "galleries"))) {
-					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 				}
 			}
 
@@ -377,6 +377,11 @@ function parse_tweet($tweet) {
 				else if (count($paths) >= 4 && $paths[0] == "user" && $paths[2] == "playlist") {
 					$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=spotify:{$paths[0]}:{$paths[1]}:{$paths[2]}:{$paths[3]}\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 				}
+			}
+
+			// embed twitlonger.com
+			if ($host == "twitlonger.com" && $paths[0] == "show") {
+				$t["embeds"][] = array("<iframe width=\"760\" height=\"500\" src=\"$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "text");
 			}
 		}
 
@@ -498,7 +503,7 @@ while (true) {
 				$content .= "<br/>\n<small>This embed does not use https. If it isn't displayed, make sure your browser does not block mixed content.</small>";
 			}
 
-			$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;");
+			$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;", "text" => "&#x1F4D7;");
 			$title .= " {$icons[$embed[1]]}";
 		}
 
