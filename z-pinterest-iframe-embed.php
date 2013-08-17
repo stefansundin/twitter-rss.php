@@ -5,9 +5,10 @@ if (!isset($_GET["type"]) || !isset($_GET["url"]) || !preg_match("/^https?:\/\/(
 	header("Content-Type: text/plain");
 	echo <<<END
 That doesn't look like a pinterest url. Example use:
-<iframe width="237" height="290" src="http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=http://pinterest.com/pin/51509989461129766/" frameborder="0" scrolling="no" allowfullscreen></iframe>
-<iframe width="582" height="261" src="http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedUser&url=http://pinterest.com/knyberg/" frameborder="0" scrolling="no" allowfullscreen></iframe>
-<iframe width="582" height="261" src="http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedBoard&url=http://pinterest.com/knyberg/our-home-planet-earth/" frameborder="0" scrolling="no" allowfullscreen></iframe>
+<iframe width="270" height="500" src="http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=http://pinterest.com/pin/51509989461129766/" frameborder="0" scrolling="no" allowfullscreen></iframe>
+<iframe width="600" height="280" src="http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedUser&url=http://pinterest.com/knyberg/" frameborder="0" scrolling="no" allowfullscreen></iframe>
+<iframe width="600" height="280" src="http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedBoard&url=http://pinterest.com/knyberg/our-home-planet-earth/" frameborder="0" scrolling="no" allowfullscreen></iframe>
+Note that the pin widget does not have a bounded height.
 END;
 	die();
 }

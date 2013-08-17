@@ -15,12 +15,25 @@ Steps:
 6. Set up the feeds in your favorite reader, using twitter-rss.php?user=
 7. Make sure the url resolution database is created. Otherwise you can try: touch twitter-rss.db; chmod 666 twitter-rss.db
 
+
+To get history:
+1. Request twitter-rss.php?user=github&all
+2. You will be redirected to twitter-rss.php?user=github&all=<timestamp>
+3. This url can be used to fetch all tweets for 30 minutes, after that, it will no longer have any effect.
+   The reason for this is to prevent your feed reader from using up the Twitter API limit.
+4. Add this url to your feed reader before the timer runs out. You may have to get a new url since resolving the urls probably took a while.
+5. Note that the API limits the number of tweets you can get to about 3200 tweets.
+
+
 To clean up the database (remove urls not seen in the last three days):
 sqlite3 twitter-rss.db "DELETE FROM urls WHERE last_seen < strftime('%s','now','-3 days'); VACUUM;"
 
 You may want to create an index (I have not seen any significant gains from it yet, so it's not done automatically):
 CREATE INDEX url ON urls (url)
 
+Note:
+It seems that links created in 2011 and earlier don't always have their urls as entities (they are not even autolinked when viewing them on twitter.com).
+Old tweets don't escape ampersands either.
 180 requests can be done per 15 minutes.
 TODO: Make sure we don't hit the limit.
 
@@ -55,6 +68,52 @@ try {
 	die("Database failed: ".$e->getMessage());
 }
 
+
+function twitter_api($resource, $query=array()) {
+	global $consumer_key, $consumer_secret, $access_token, $access_token_secret;
+	$url = "https://api.twitter.com/1.1$resource.json";
+	$oauth = array(
+		"oauth_consumer_key" => $consumer_key,
+		"oauth_token" => $access_token,
+		"oauth_nonce" => (string) mt_rand(),
+		"oauth_timestamp" => time(),
+		"oauth_signature_method" => "HMAC-SHA1",
+		"oauth_version" => "1.0"
+	);
+	$oauth = array_map("rawurlencode", $oauth); // must be encoded before sorting
+	//$query = array_map("rawurlencode", $query);
+	$arr = array_merge($oauth, $query); // combine the values THEN sort
+	asort($arr); // secondary sort (value)
+	ksort($arr); // primary sort (key)
+
+	// http_build_query automatically encodes, but our parameters are already encoded, and must be by this point, so we undo the encoding step
+	$querystring = urldecode(http_build_query($arr, "", "&"));
+
+	// generate the hash
+	$base_string = "GET&".rawurlencode($url)."&".rawurlencode($querystring);
+	$key = rawurlencode($consumer_secret)."&".rawurlencode($access_token_secret);
+	$signature = rawurlencode(base64_encode(hash_hmac("sha1", $base_string, $key, true)));
+	$oauth["oauth_signature"] = $signature;
+	ksort($oauth); // probably not necessary, but twitter's demo does it
+	$auth = "OAuth ".urldecode(http_build_query($oauth, "", ", "));
+
+	// encode the query params
+	$url .= "?".http_build_query($query);
+	$url = str_replace(array("&amp;","%25"), array("&","%"), $url);
+
+	// make the request
+	$feed = curl_init();
+	curl_setopt_array($feed, array(
+		CURLOPT_HTTPHEADER => array("Authorization: $auth"),
+		CURLOPT_HEADER => false,
+		CURLOPT_URL => $url,
+		CURLOPT_RETURNTRANSFER => true,
+		CURLOPT_SSL_VERIFYPEER => false
+	));
+	$json = json_decode(curl_exec($feed), true);
+	curl_close($feed);
+	return $json;
+}
 
 function double_explode($del1, $del2, $str) {
 	$res = array();
@@ -264,17 +323,17 @@ function parse_tweet($tweet) {
 
 		// embed pinterest
 		// pinterest embeds using JavaScript, so encapsulate that in a simple website. bah!
-		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_"))) {
+		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_,search,about"))) {
 			if ($paths[0] == "pin") {
 				if (isset($paths[1]) && is_numeric($paths[1])) {
-					$t["embeds"][] = array("<iframe width=\"237\" height=\"290\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"270\" height=\"500\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 				}
 			}
 			else if (count($paths) == 1) {
-				$t["embeds"][] = array("<iframe width=\"582\" height=\"261\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedUser&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+				$t["embeds"][] = array("<iframe width=\"600\" height=\"280\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedUser&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 			}
 			else if (count($paths) >= 2 && !in_array($paths[1],explode(",","boards,pins,likes,followers,following"))) {
-				$t["embeds"][] = array("<iframe width=\"582\" height=\"261\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedBoard&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+				$t["embeds"][] = array("<iframe width=\"600\" height=\"280\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedBoard&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 			}
 		}
 
@@ -353,67 +412,39 @@ function parse_tweet($tweet) {
 }
 
 
-set_time_limit(120); // resolving all the urls can take quite a bit of time...
+
+set_time_limit(2*60); // resolving all the urls can take quite a bit of time...
+
+if (isset($_GET["all"])) {
+	if (empty($_GET["all"])) {
+		#http_response_code(301);
+		header("Location: ".preg_replace("/([\?&])all=?/", "$1all=".time(), $_SERVER["REQUEST_URI"]));
+		die();
+	}
+	if (time() < ((int)$_GET["all"])+30*60) {
+		$getall = true;
+		set_time_limit(30*60); // this will take forever
+	}
+}
 
 
+#die(var_dump(twitter_api("/application/rate_limit_status")));
+#die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
 
-$url = "https://api.twitter.com/1.1/statuses/user_timeline.json";
-#$url = "https://api.twitter.com/1.1/application/rate_limit_status.json";
 $query = array(
 	"screen_name" => $user,
 	"count" => 200, // max 200
 	"include_rts" => true, // include retweets
+	#"max_id" => "31053515254140928",
 	#"trim_user" => true,
 	#"exclude_replies" => true,
 	#"contributor_details" => true,
 );
-$oauth = array(
-	"oauth_consumer_key" => $consumer_key,
-	"oauth_token" => $access_token,
-	"oauth_nonce" => (string) mt_rand(),
-	"oauth_timestamp" => time(),
-	"oauth_signature_method" => "HMAC-SHA1",
-	"oauth_version" => "1.0"
-);
 
-$oauth = array_map("rawurlencode", $oauth); // must be encoded before sorting
-//$query = array_map("rawurlencode", $query);
-
-$arr = array_merge($oauth, $query); // combine the values THEN sort
-
-asort($arr); // secondary sort (value)
-ksort($arr); // primary sort (key)
-
-// http_build_query automatically encodes, but our parameters are already encoded, and must be by this point, so we undo the encoding step
-$querystring = urldecode(http_build_query($arr, "", "&"));
-
-// generate the hash
-$base_string = "GET&".rawurlencode($url)."&".rawurlencode($querystring);
-$key = rawurlencode($consumer_secret)."&".rawurlencode($access_token_secret);
-$signature = rawurlencode(base64_encode(hash_hmac("sha1", $base_string, $key, true)));
-
-$oauth["oauth_signature"] = $signature;
-ksort($oauth); // probably not necessary, but twitter's demo does it
-
-$auth = "OAuth ".urldecode(http_build_query($oauth, "", ", "));
-
-// encode the query params
-$url .= "?".http_build_query($query);
-$url = str_replace(array("&amp;","%25"), array("&","%"), $url);
-
-// make the request
-$feed = curl_init();
-curl_setopt_array($feed, array(
-	CURLOPT_HTTPHEADER => array("Authorization: $auth"),
-	CURLOPT_HEADER => false,
-	CURLOPT_URL => $url,
-	CURLOPT_RETURNTRANSFER => true,
-	CURLOPT_SSL_VERIFYPEER => false
-));
-$json = json_decode(curl_exec($feed), true);
-curl_close($feed);
-
+$json = twitter_api("/statuses/user_timeline", $query);
 #die(var_dump($json));
+
+
 
 if (isset($json["error"])) {
 	http_response_code(503);
@@ -440,46 +471,46 @@ echo <<<END
 
 END;
 
+while (true) {
+	foreach ($json as $tweet) {
+		$id = $tweet["id_str"];
+		$updated = date("c", strtotime($tweet["created_at"]));
 
-foreach ($json as $tweet) {
-	$id = $tweet["id_str"];
-	$updated = date("c", strtotime($tweet["created_at"]));
-
-	if (isset($tweet["retweeted_status"])) {
-		$t = parse_tweet($tweet["retweeted_status"]);
-		$title = "$user: RT @{$t["user"]}: {$t["title"]}";
-		$content = "$user: RT @{$t["user"]}: {$t["text"]}";
-	}
-	else {
-		$t = parse_tweet($tweet);
-		$title = "$user: {$t["title"]}";
-		$content = "$user: {$t["text"]}";
-	}
-
-	if (isset($tweet["in_reply_to_screen_name"])) {
-		$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}/".(isset($tweet["in_reply_to_status_id_str"]) ? "status/{$tweet["in_reply_to_status_id_str"]}" : "");
-		$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
-	}
-
-	foreach ($t["embeds"] as $embed) {
-		$content .= "\n<br/><br/>\n{$embed[0]}";
-		if (stripos($embed[0],"src=\"http://") !== FALSE) {
-			$content .= "<br/>\n<small>This embed does not use https. If it isn't displayed, make sure your browser does not block mixed content.</small>";
+		if (isset($tweet["retweeted_status"])) {
+			$t = parse_tweet($tweet["retweeted_status"]);
+			$title = "$user: RT @{$t["user"]}: {$t["title"]}";
+			$content = "$user: RT @{$t["user"]}: {$t["text"]}";
+		}
+		else {
+			$t = parse_tweet($tweet);
+			$title = "$user: {$t["title"]}";
+			$content = "$user: {$t["text"]}";
 		}
 
-		$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;");
-		$title .= " {$icons[$embed[1]]}";
-	}
+		if (isset($tweet["in_reply_to_screen_name"])) {
+			$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}/".(isset($tweet["in_reply_to_status_id_str"]) ? "status/{$tweet["in_reply_to_status_id_str"]}" : "");
+			$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
+		}
 
-	$content .= "\n<br/><br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
+		foreach ($t["embeds"] as $embed) {
+			$content .= "\n<br/><br/>\n{$embed[0]}";
+			if (stripos($embed[0],"src=\"http://") !== FALSE) {
+				$content .= "<br/>\n<small>This embed does not use https. If it isn't displayed, make sure your browser does not block mixed content.</small>";
+			}
 
-	// escape stuff
-	$title = str_replace("<", "&lt;", $title);
-	$content = str_replace("<", "&lt;", $content);
-	$title = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $title);
-	$content = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $content);
+			$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;");
+			$title .= " {$icons[$embed[1]]}";
+		}
 
-	echo <<<END
+		$content .= "\n<br/><br/>\nRetweeted {$tweet["retweet_count"]} times. Favorited by {$tweet["favorite_count"]} people.";
+
+		// escape stuff
+		$title = str_replace("<", "&lt;", $title);
+		$content = str_replace("<", "&lt;", $content);
+		$title = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $title);
+		$content = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $content);
+
+		echo <<<END
 
 	<entry>
 		<id>https://twitter.com/$user/status/$id</id>
@@ -494,9 +525,16 @@ $content
 
 END;
 
-	flush();
-}
+		flush();
+	}
 
+	if (!isset($getall) || count($json) == 0) {
+		break;
+	}
+
+	$query["max_id"] = bcsub($json[count($json)-1]["id_str"], "1");
+	$json = twitter_api("/statuses/user_timeline", $query);
+}
 
 echo <<<END
 </feed>
