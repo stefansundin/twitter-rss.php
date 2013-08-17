@@ -221,6 +221,7 @@ function parse_tweet($tweet) {
 		}
 
 		// embed Ustream
+		// resolve and cache ustream channel ids in db
 		if ($host == "ustream.tv" && !in_array($paths[0],explode(",",",blog,contact-us,copyright-policy,forgot-password,forgot-username,howto,information,login-signup,new,our-company,platform,premium-membership,press,privacy-policy,producer,services,terms,user,ustream-pro"))
 		 && !($paths[0] == "channel" && !isset($paths[1]))) {
 			if ($paths[0] == "recorded" && isset($paths[1]) && is_numeric($paths[1])) {
@@ -259,6 +260,22 @@ function parse_tweet($tweet) {
 		// embed imgur
 		if ($host == "i.imgur.com" && !empty($paths[0])) {
 			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url\" /></a>", "picture");
+		}
+
+		// embed pinterest
+		// pinterest embeds using JavaScript, so encapsulate that in a simple website. bah!
+		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_"))) {
+			if ($paths[0] == "pin") {
+				if (isset($paths[1]) && is_numeric($paths[1])) {
+					$t["embeds"][] = array("<iframe width=\"237\" height=\"290\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+				}
+			}
+			else if (count($paths) == 1) {
+				$t["embeds"][] = array("<iframe width=\"582\" height=\"261\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedUser&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+			}
+			else if (count($paths) >= 2 && !in_array($paths[1],explode(",","boards,pins,likes,followers,following"))) {
+				$t["embeds"][] = array("<iframe width=\"582\" height=\"261\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedBoard&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+			}
 		}
 
 		if (count($paths) >= 2) {
