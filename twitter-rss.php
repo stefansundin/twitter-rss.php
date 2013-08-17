@@ -303,10 +303,10 @@ function parse_tweet($tweet) {
 			// flickr blocks iframe embeds, so hide referer by using a website which does a meta refresh
 			if ($host == "flickr.com" && $paths[0] == "photos") {
 				if (count($paths) == 2 || (count($paths) >= 4 && $paths[2] == "sets")) {
-					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide_referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 				}
 				else if (count($paths) >= 3 && (is_numeric($paths[2]) || $paths[2] == "favorites" || (count($paths) >= 4 && $paths[2] == "galleries"))) {
-					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide_referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"500\" height=\"332\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 				}
 			}
 
