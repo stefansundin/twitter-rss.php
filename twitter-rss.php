@@ -284,7 +284,7 @@ function parse_tweet($tweet) {
 		if ($host == "ustream.tv" && !in_array($paths[0],explode(",",",blog,contact-us,copyright-policy,forgot-password,forgot-username,howto,information,login-signup,new,our-company,platform,premium-membership,press,privacy-policy,producer,services,terms,user,ustream-pro"))
 		 && !($paths[0] == "channel" && !isset($paths[1]))) {
 			if ($paths[0] == "recorded" && isset($paths[1]) && is_numeric($paths[1])) {
-				$t["embeds"][] = array("<iframe width=\"480\" height=\"302\" src=\"http://www.ustream.tv/embed$path?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+				$t["embeds"][] = array("<iframe width=\"640\" height=\"392\" src=\"http://www.ustream.tv/embed$path?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 			}
 			else {
 				$channel_name = strtolower(rawurldecode(($paths[0] == "channel")?$paths[1]:$paths[0]));
@@ -306,7 +306,7 @@ function parse_tweet($tweet) {
 					$stmt->execute(array($channel_name, $channel_id));
 				}
 				if ($channel_id != NULL) {
-					$t["embeds"][] = array("<iframe width=\"480\" height=\"302\" src=\"http://www.ustream.tv/embed/$channel_id?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+					$t["embeds"][] = array("<iframe width=\"640\" height=\"392\" src=\"http://www.ustream.tv/embed/$channel_id?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 				}
 			}
 		}
@@ -396,13 +396,15 @@ function parse_tweet($tweet) {
 		}
 
 		// embed SoundCloud
+		// SoundCloud urls from @SoundCloud sometimes ends with "/s-..." which fails the embed (appears to serve a tracking purpose)
 		if ($host == "soundcloud.com"
 		 && !in_array($paths[0],explode(",",",apps,community-guidelines,creators,dashboard,explore,imprint,jobs,logout,messages,pages,people,premium,press,pro,search,settings,stream,terms-of-use,upload,you"))
 		 && (!isset($paths[1]) || !in_array($paths[1],explode(",","activity,comments,favorites,followers,following,groups,likes,tracks")))
-		 && !($paths[0] == "groups" && isset($paths[2]) && in_array($paths[2],explode(",","tracks,discussion,info,dropbox")))
+		 && ($paths[0] != "groups" || !isset($paths[2]) || !in_array($paths[2],explode(",","tracks,discussion,info,dropbox")))
 		) {
+			$embed_url = preg_replace("/\/s-[^\/]+$/","",$expanded_url);
 			$height = isset($paths[1])?166:450;
-			$t["embeds"][] = array("<iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
+			$t["embeds"][] = array("<iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$embed_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 		}
 	}
 
