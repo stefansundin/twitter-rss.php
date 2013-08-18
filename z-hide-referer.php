@@ -5,9 +5,10 @@ if (!isset($_GET["url"])) {
 	header("Content-Type: text/plain");
 	echo <<<END
 Because flickr is a dick and blocks iframe embeds. Example use:
-<iframe width="800" height="532" src="http://stefansundin.com/stuff/hide-referer.php?url=http://www.flickr.com/photos/national-archives-of-australia/9507039958/lightbox" frameborder="0" scrolling="no" allowfullscreen></iframe>
+<iframe width="800" height="532" srcdoc='<meta http-equiv="refresh" content="0;url=http://www.flickr.com/photos/national-archives-of-australia/9507039958/lightbox">' src="http://stefansundin.com/stuff/hide-referer.php?url=http://www.flickr.com/photos/national-archives-of-australia/9507039958/lightbox" frameborder="0" scrolling="no" allowfullscreen></iframe>
 
 This page will do a meta refresh which does not leak a referer.
+If your browser supports srcdoc then you don't need to use this file.
 END;
 	die();
 }
@@ -18,4 +19,4 @@ if (strpos($_GET["url"],'"')) {
 }
 
 ?>
-<meta http-equiv="refresh" content="0; url=<?php echo $_GET["url"]; ?>">
+<meta http-equiv="refresh" content="0;url=<?php echo $_GET["url"]; ?>">

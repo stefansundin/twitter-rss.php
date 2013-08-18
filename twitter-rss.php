@@ -362,10 +362,10 @@ function parse_tweet($tweet) {
 			// flickr blocks iframe embeds, so hide referer by using a website which does a meta refresh
 			if ($host == "flickr.com" && $paths[0] == "photos") {
 				if (count($paths) == 2 || (count($paths) >= 4 && $paths[2] == "sets")) {
-					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" srcdoc='<meta http-equiv=\"refresh\" content=\"0;url=$expanded_url/show\">' src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 				}
 				else if (count($paths) >= 3 && (is_numeric($paths[2]) || $paths[2] == "favorites" || (count($paths) >= 4 && $paths[2] == "galleries"))) {
-					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" srcdoc='<meta http-equiv=\"refresh\" content=\"0;url=$expanded_url/lightbox\">' src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 				}
 			}
 
@@ -379,10 +379,20 @@ function parse_tweet($tweet) {
 				}
 			}
 
-			// embed twitlonger.com
+			// embed TwitLonger
 			if ($host == "twitlonger.com" && $paths[0] == "show") {
 				$t["embeds"][] = array("<iframe width=\"760\" height=\"500\" src=\"$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "text");
 			}
+
+			// embed Indiegogo
+			if ($host == "indiegogo.com" && $paths[0] == "projects") {
+				$t["embeds"][] = array("<iframe width=\"240\" height=\"510\" src=\"http://www.indiegogo.com/project/{$paths[1]}/widget\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
+			}
+		}
+
+		// embed Kickstarter
+		if ($host == "kickstarter.com" && count($paths) >= 3 && $paths[0] == "projects") {
+			$t["embeds"][] = array("<iframe width=\"220\" height=\"380\" src=\"http://www.kickstarter.com/projects/{$paths[1]}/{$paths[2]}/widget/card.html\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
 		}
 
 		// embed SoundCloud
@@ -495,15 +505,16 @@ while (true) {
 		if (isset($tweet["in_reply_to_screen_name"])) {
 			$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}/".(isset($tweet["in_reply_to_status_id_str"]) ? "status/{$tweet["in_reply_to_status_id_str"]}" : "");
 			$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
+			$title .= " &#x21B1;";
 		}
 
 		foreach ($t["embeds"] as $embed) {
 			$content .= "\n<br/><br/>\n{$embed[0]}";
 			if (stripos($embed[0],"src=\"http://") !== FALSE) {
-				$content .= "<br/>\n<small>This embed does not use https. If it isn't displayed, make sure your browser does not block mixed content.</small>";
+				$content .= "<br/>\n<small>This embed does not use https. If it isn't displayed, make sure your browser/reader does not block mixed content.</small>";
 			}
 
-			$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;", "text" => "&#x1F4D7;");
+			$icons = array("video" => "&#x1F3AC;", "picture" => "&#x1F3A8;", "audio" => "&#x1F3BC;", "text" => "&#x1F4D7;", "money" => "&#x1f4b0;");
 			$title .= " {$icons[$embed[1]]}";
 		}
 
