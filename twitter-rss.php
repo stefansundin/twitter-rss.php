@@ -245,10 +245,14 @@ function parse_tweet($tweet) {
 	// expand urls
 	foreach ($tweet["entities"]["urls"] as $url) {
 		$expanded_url = resolve_url($url["expanded_url"]);
+		$expanded_url_https = preg_replace("/^http:\/\//", "https://", $expanded_url);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
 		$paths = explode("/", trim($path,"/"));
-		$query = double_explode("&", "=", parse_url($expanded_url, PHP_URL_QUERY));
+		$query = array_merge(
+			double_explode("&", "=", parse_url($expanded_url,PHP_URL_QUERY)),
+			double_explode("&", "=", parse_url($expanded_url,PHP_URL_FRAGMENT))
+		);
 
 		$t["text"] = str_replace($url["url"], "<a href=\"$expanded_url\" title=\"{$url["display_url"]} {$url["url"]}\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
 		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
@@ -317,13 +321,17 @@ function parse_tweet($tweet) {
 		}
 
 		// embed imgur
+		if ($host == "imgur.com" && !in_array($paths[0],explode(",",",random,signin,register,user,blog,help,removalrequest,tos,apps,")) && ($paths[0] != "gallery" || isset($paths[1]))) {
+			$embed_url = "https://i.imgur.com/".($paths[0] == "gallery"?$paths[1]:$paths[0]).".jpg";
+			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$embed_url\" /></a>", "picture");
+		}
 		if ($host == "i.imgur.com" && !empty($paths[0])) {
-			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url\" /></a>", "picture");
+			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url_https\" /></a>", "picture");
 		}
 
 		// embed pinterest
 		// pinterest embeds using JavaScript, so encapsulate that in a simple website. bah!
-		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_,search,about"))) {
+		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_,search,about,fashionweek"))) {
 			if ($paths[0] == "pin") {
 				if (isset($paths[1]) && is_numeric($paths[1])) {
 					$t["embeds"][] = array("<iframe width=\"270\" height=\"500\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "picture");
@@ -425,6 +433,7 @@ function parse_tweet($tweet) {
 		$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 	}
 
+	$t["embeds"] = array_unique($t["embeds"]);
 	return $t;
 }
 
@@ -507,7 +516,7 @@ while (true) {
 		if (isset($tweet["in_reply_to_screen_name"])) {
 			$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}/".(isset($tweet["in_reply_to_status_id_str"]) ? "status/{$tweet["in_reply_to_status_id_str"]}" : "");
 			$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
-			$title .= " &#x21B1;";
+			$title .= " &#x21B0;";
 		}
 
 		foreach ($t["embeds"] as $embed) {
