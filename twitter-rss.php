@@ -491,7 +491,7 @@ echo <<<END
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 	<id>https://twitter.com/$user</id>
-	<title>&#128038; $user</title>
+	<title>@$user</title>
 	<updated>$updated</updated>
 	<link href="https://twitter.com/$user" />
 
