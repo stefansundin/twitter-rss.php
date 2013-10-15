@@ -246,6 +246,7 @@ function parse_tweet($tweet) {
 	foreach ($tweet["entities"]["urls"] as $url) {
 		$expanded_url = resolve_url($url["expanded_url"]);
 		$expanded_url_https = preg_replace("/^http:\/\//", "https://", $expanded_url);
+		$expanded_url_https_noslash = preg_replace("/\/$/", "", $expanded_url_https);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
 		$paths = explode("/", trim($path,"/"));
@@ -348,7 +349,7 @@ function parse_tweet($tweet) {
 		if (count($paths) >= 2) {
 			// embed Instagram
 			if ($host == "instagram.com" && $paths[0] == "p") {
-				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://instagr.am/p/{$paths[1]}/media/?size=l\" /></a>", "picture");
+				$t["embeds"][] = array("<iframe src=\"$expanded_url_https_noslash/embed/\" width=\"612\" height=\"710\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 			}
 
 			// embed Vine
