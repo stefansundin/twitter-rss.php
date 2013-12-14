@@ -49,20 +49,38 @@ $consumer_secret = "yyy";
 $access_token = "zzz";
 $access_token_secret = "xyz";
 
+date_default_timezone_set("Europe/Stockholm");
+
 #die(var_dump(get_headers("http://t.co/MdsjIIVkjO")));
 
 if (isset($_GET["limits"])) {
-	header("Content-Type: text/plain;charset=utf-8");
+	if (!isset($_GET["timezone"])) {
+		header("Content-Type: text/html;charset=utf-8");
+		echo <<<END
+<script>
+var d = new Date();
+var dst = d.getTimezoneOffset() < Math.max(new Date(d.getFullYear(),0,1).getTimezoneOffset(),new Date(d.getFullYear(),6,1).getTimezoneOffset());
+window.location.replace(window.location+'&timezone='+d.getTimezoneOffset()+(dst?"&dst":""));
+</script><pre>
+END;
+	}
+	else {
+		$timezone = tz_offset_to_name((int) $_GET["timezone"], isset($_GET["dst"]));
+		if ($timezone) date_default_timezone_set($timezone);
+		header("Content-Type: text/plain;charset=utf-8");
+	}
+	echo "Timezone: ".str_replace("_"," ",date_default_timezone_get())."\n\n";
 	$json = twitter_api("/application/rate_limit_status");
 	foreach ($json["resources"] as $resource) {
 		foreach ($resource as $endpoint => $info) {
 			// var_dump($info)
 			if ($info["remaining"] != $info["limit"]) {
-				$reset = date("c", $info["reset"]);
+				$diff = (new DateTime())->diff(new DateTime("@{$info["reset"]}"));
+				$reset = date("Y-m-d H:i:s", $info["reset"]);
 				echo <<<END
 $endpoint
 \t{$info["remaining"]} remaining of {$info["limit"]}
-\tresetting {$reset}
+\tresetting {$reset} (in {$diff->i} minutes and {$diff->s} seconds)
 \n
 END;
 			}
@@ -78,17 +96,13 @@ if (!isset($_GET["user"])) {
 $user = $_GET["user"];
 
 
-function shutdown() {
-	global $db;
-	$db->commit();
-}
-
 // setup url resolution db
 try {
 	$db = new PDO("sqlite:twitter-rss.db");
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
-	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE, user STRING, date INTEGER, text STRING)");
+	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE, user STRING, date INTEGER, text STRING, error INTEGER)");
+	# ALTER TABLE tweets ADD COLUMN errors INTEGER
 	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE, channel_id INTEGER)");
 	$db->beginTransaction();
 	register_shutdown_function("shutdown");
@@ -96,10 +110,29 @@ try {
 	die("Database failed: ".$e->getMessage());
 }
 
+$ratelimited = false;
+
 
 // die(resolve_url("http://tinyurl.com/kfhwhdm", true));
 
 
+
+function tz_offset_to_name($offset, $dst) {
+	$offset *= -60;
+	foreach (timezone_abbreviations_list() as $abbr) {
+		foreach ($abbr as $city) {
+			if ($city['offset'] == $offset && $city['dst'] == $dst) {
+				return $city['timezone_id'];
+			}
+		}
+	}
+	return false;
+}
+
+function shutdown() {
+	global $db;
+	$db->commit();
+}
 
 function twitter_api($resource, $query=array()) {
 	global $consumer_key, $consumer_secret, $access_token, $access_token_secret;
@@ -169,7 +202,7 @@ function double_explode($del1, $del2, $str) {
 function normalize_url($url) {
 	// make protocol and host lowercase and make sure the path has a slash at the end
 	// this is to reduce duplicates in db and unnecessary resolves
-	if (preg_match("/^([a-zA-Z]+:\/\/[^\/]+)\/?(.*)$/", $url, $matches) > 0) {
+	if (preg_match("/^([a-z]+:\/\/[^\/]+)\/?(.*)$/i", $url, $matches) > 0) {
 		return strtolower($matches[1])."/".$matches[2];
 	}
 	return $url;
@@ -255,8 +288,8 @@ function resolve_url($url, $force=false) {
 	return $url;
 }
 
-function get_tweet($id, $force=false) {
-	global $db;
+function get_tweet($id, $force=false, $user=null) {
+	global $db, $ratelimited;
 
 	// This regex is pretty close to Twitter's regex, but more relaxed since it allows invalid domain names
 	// The important part is pretty much deciding which characters can't be at the end of the url
@@ -269,14 +302,32 @@ function get_tweet($id, $force=false) {
 		$stmt->execute(array($id));
 		$tweet = $stmt->fetch(PDO::FETCH_ASSOC);
 		if ($tweet !== FALSE) {
+			if ($tweet["error"] != null) {
+				return false;
+			}
 			return $tweet;
 		}
+	}
+
+	// don't even try if we're ratelimited
+	if ($ratelimited) {
+		return false;
 	}
 
 	// get the tweet
 	$json = twitter_api("/statuses/show", array("id" => $id));
 	if (isset($json["error"]) || isset($json["errors"])) {
-		// probably rate limit exceeded
+		if (in_array($json["errors"][0]["code"], array(179,34))) {
+			// 179: Sorry, you are not authorized to see this status.
+			// 34: Sorry, that page does not exist
+			$stmt = $db->prepare("INSERT OR REPLACE INTO tweets VALUES (NULL,?,?,NULL,NULL,?)");
+			$stmt->execute(array($tweet["tweet_id"], $user, $json["errors"][0]["code"]));
+			return false;
+		}
+		else if ($json["errors"][0]["code"] == 88) {
+			// rate limit exceeded
+			$ratelimited = true;
+		}
 		return false;
 	}
 
@@ -284,7 +335,7 @@ function get_tweet($id, $force=false) {
 	$tweet["tweet_id"] = $json["id_str"];
 	$tweet["user"] = $json["user"]["screen_name"];
 	$tweet["date"] = strtotime($json["created_at"]);
-	$tweet["text"] = $json["text"];
+	$tweet["text"] = str_replace("\n", " ", $json["text"]);
 
 	foreach ($json["entities"]["urls"] as $url) {
 		$expanded_url = resolve_url($url["expanded_url"]);
@@ -292,7 +343,7 @@ function get_tweet($id, $force=false) {
 	}
 
 	// store tweet in db
-	$stmt = $db->prepare("INSERT OR REPLACE INTO tweets VALUES (NULL,?,?,?,?)");
+	$stmt = $db->prepare("INSERT OR REPLACE INTO tweets VALUES (NULL,?,?,?,?,NULL)");
 	$stmt->execute(array($tweet["tweet_id"], $tweet["user"], $tweet["date"], $tweet["text"]));
 
 	return $tweet;
@@ -530,7 +581,11 @@ if (isset($_GET["all"])) {
 #die(var_dump(twitter_api("/application/rate_limit_status")));
 #die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
 #die(var_dump(twitter_api("/statuses/show", array("id" => "210462857140252672"))));
-#die(var_dump(twitter_api("/statuses/show", array("id" => "411397857107664896"))));
+// for ($i=0; $i < 130; $i++) {
+// 	// twitter_api("/statuses/show", array("id" => "411397857107664896"));
+// 	die(var_dump(get_tweet("411593665287446528")));
+// }
+// die();
 #die(var_dump(get_tweet("409181201211998208")));
 #die(var_dump(get_tweet("411593665287446528")));
 
@@ -555,7 +610,7 @@ if (isset($json["error"])) {
 }
 if (isset($json["errors"])) {
 	http_response_code(429);
-	die($json["errors"]["message"]);
+	die("{$json["errors"][0]["message"]} ({$json["errors"][0]["code"]})");
 }
 
 $user = $json[0]["user"]["screen_name"];
@@ -590,19 +645,16 @@ while (true) {
 			$content = "$user: {$t["text"]}";
 		}
 
-		if (isset($tweet["in_reply_to_screen_name"])) {
-			$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}";
-			$irt = false;
-			if (isset($tweet["in_reply_to_status_id_str"])) {
-				$url .= "/status/{$tweet["in_reply_to_status_id_str"]}";
-				$irt = get_tweet($tweet["in_reply_to_status_id_str"]);
-				if ($irt) {
-					$posted = date("c", $irt["date"]);
-					$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" title=\"$posted\" rel=\"noreferrer\">@</a>{$irt["user"]}: {$irt["text"]}";
-				}
+		if (isset($tweet["in_reply_to_screen_name"]) && isset($tweet["in_reply_to_status_id_str"])) {
+			$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}/status/{$tweet["in_reply_to_status_id_str"]}";
+			$irt = get_tweet($tweet["in_reply_to_status_id_str"], false, $tweet["in_reply_to_screen_name"]);
+			if ($irt) {
+				$posted = date("c", $irt["date"]);
+				$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" title=\"$posted\" rel=\"noreferrer\">{$irt["user"]}</a>: {$irt["text"]}";
 			}
-			if (!$irt) {
-				$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
+			else {
+				// probably ratelimited
+				$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">{$irt["user"]}</a>";
 			}
 			$title .= " &#8644;";
 		}
