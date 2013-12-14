@@ -1,5 +1,5 @@
 <?php
-/*
+/* https://gist.github.com/stefansundin/5951213
 Twitter to RSS (Atom feed)
 By: Stefan Sundin https://github.com/stefansundin
 Based on: https://github.com/jdelamater99/Twitter-RSS-Parser/
@@ -36,6 +36,7 @@ It seems that links created in 2011 and earlier don't always have their urls as 
 Old tweets don't escape ampersands either.
 180 requests can be done per 15 minutes.
 TODO: Make sure we don't hit the limit.
+Check your limits by going to twitter-api.php?limits
 
 https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
 https://dev.twitter.com/docs/rate-limiting/1.1
@@ -48,8 +49,28 @@ $consumer_secret = "yyy";
 $access_token = "zzz";
 $access_token_secret = "xyz";
 
-
 #die(var_dump(get_headers("http://t.co/MdsjIIVkjO")));
+
+if (isset($_GET["limits"])) {
+	header("Content-Type: text/plain;charset=utf-8");
+	$json = twitter_api("/application/rate_limit_status");
+	foreach ($json["resources"] as $resource) {
+		foreach ($resource as $endpoint => $info) {
+			// var_dump($info)
+			if ($info["remaining"] != $info["limit"]) {
+				$reset = date("c", $info["reset"]);
+				echo <<<END
+$endpoint
+\t{$info["remaining"]} remaining of {$info["limit"]}
+\tresetting {$reset}
+\n
+END;
+			}
+
+		}
+	}
+	die();
+}
 
 if (!isset($_GET["user"])) {
 	die("Please specify user like twitter-rss.php?user=");
@@ -57,16 +78,27 @@ if (!isset($_GET["user"])) {
 $user = $_GET["user"];
 
 
+function shutdown() {
+	global $db;
+	$db->commit();
+}
+
 // setup url resolution db
 try {
 	$db = new PDO("sqlite:twitter-rss.db");
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE, user STRING, date INTEGER, text STRING)");
 	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE, channel_id INTEGER)");
 	$db->beginTransaction();
+	register_shutdown_function("shutdown");
 } catch (PDOException $e) {
 	die("Database failed: ".$e->getMessage());
 }
+
+
+// die(resolve_url("http://tinyurl.com/kfhwhdm", true));
+
 
 
 function twitter_api($resource, $query=array()) {
@@ -206,7 +238,7 @@ function resolve_url($url, $force=false) {
 		// TODO: Stop at blogspot country TLD redirect?
 		) {
 		 	// Stop at these redirections: (usually the last redirection, so we usually get the intended url anyway)
-			// YouTube captcha, will happen if the script is generating a lot of resolve_url() requests that lead to YouTube.
+			// YouTube captcha, will happen if the script is generating a lot of resolve_url() requests that lead to YouTube
 			// nytimes.com has a bad reaction if it can't set cookies, and redirection loops ensues, just stop this madness
 			// Facebook redirects to unsupportedbrowser if it can't identify a known user agent
 			// Spotify is a little worse, as open.spotify.com doesn't even try to redirect to play.spotify.com if it's an unsupported user agent
@@ -223,15 +255,57 @@ function resolve_url($url, $force=false) {
 	return $url;
 }
 
-/*
-echo resolve_url("http://tinyurl.com/kfhwhdm", true);
-$db->commit();
-die();
-*/
+function get_tweet($id, $force=false) {
+	global $db;
+
+	// This regex is pretty close to Twitter's regex, but more relaxed since it allows invalid domain names
+	// The important part is pretty much deciding which characters can't be at the end of the url
+	// A nice way to test Twitter's url detection is to compose a new tweet and see when the url turns blue
+	// $url_regex = "/(^|[^a-z0-9])https?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:]+(?<![%\.~?\[\]@!$&'()*,;:])/ig";
+
+	// try to get tweet from db
+	if (!$force) {
+		$stmt = $db->prepare("SELECT * FROM tweets WHERE tweet_id=?");
+		$stmt->execute(array($id));
+		$tweet = $stmt->fetch(PDO::FETCH_ASSOC);
+		if ($tweet !== FALSE) {
+			return $tweet;
+		}
+	}
+
+	// get the tweet
+	$json = twitter_api("/statuses/show", array("id" => $id));
+	if (isset($json["error"]) || isset($json["errors"])) {
+		// probably rate limit exceeded
+		return false;
+	}
+
+
+	$tweet["tweet_id"] = $json["id_str"];
+	$tweet["user"] = $json["user"]["screen_name"];
+	$tweet["date"] = strtotime($json["created_at"]);
+	$tweet["text"] = $json["text"];
+
+	foreach ($json["entities"]["urls"] as $url) {
+		$expanded_url = resolve_url($url["expanded_url"]);
+		$tweet["text"] = str_replace($url["url"], $expanded_url, $tweet["text"]);
+	}
+
+	// store tweet in db
+	$stmt = $db->prepare("INSERT OR REPLACE INTO tweets VALUES (NULL,?,?,?,?)");
+	$stmt->execute(array($tweet["tweet_id"], $tweet["user"], $tweet["date"], $tweet["text"]));
+
+	return $tweet;
+}
 
 function parse_tweet($tweet) {
 	global $db;
+	#$tweet["text"] = htmlspecialchars($tweet["text"], ENT_NOQUOTES|ENT_XML1, 'UTF-8', false);
+	$tweet["text"] = htmlspecialchars_decode($tweet["text"], ENT_QUOTES);
+	$tweet["text"] = str_replace(array("&","<",">"), array("&amp;","&amp;lt;","&amp;gt;"), $tweet["text"]);
 	$t = array(
+		"id"      => $tweet["id_str"],
+		"date"    => $tweet["created_at"],
 		"user"    => $tweet["user"]["screen_name"],
 		"title"   => $tweet["text"],
 		"text"    => $tweet["text"],
@@ -267,21 +341,6 @@ function parse_tweet($tweet) {
 		// embed Vimeo
 		if ($host == "vimeo.com" && preg_match("/\/(\d+)/",$path,$matches) > 0) {
 			$t["embeds"][] = array("<iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/{$matches[1]}\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
-		}
-
-		// embed Twitch
-		if ($host == "twitch.tv" && !in_array($paths[0],explode(",",",directory,embed,login,p,products,search,user"))
-		 && !(isset($paths[1]) && $paths[1] == "b" && (!isset($paths[2]) || !is_numeric($paths[2])))) {
-			if (isset($paths[1]) && $paths[1] == "b") {
-				$embed_url = "http://www.twitch.tv/archive/archive_popout?id={$paths[2]}";
-			}
-			else {
-				$embed_url = "$expanded_url/popout?";
-			}
-			if (isset($query["t"])) {
-				$embed_url .= "&t={$query["t"]}";
-			}
-			$t["embeds"][] = array("<iframe width=\"853\" height=\"512\" src=\"$embed_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 		}
 
 		// embed Ustream
@@ -322,7 +381,7 @@ function parse_tweet($tweet) {
 		}
 
 		// embed imgur
-		if ($host == "imgur.com" && !in_array($paths[0],explode(",",",random,signin,register,user,blog,help,removalrequest,tos,apps,")) && ($paths[0] != "gallery" || isset($paths[1]))) {
+		if ($host == "imgur.com" && !in_array($paths[0],explode(",",",random,signin,register,user,blog,help,removalrequest,tos,apps")) && ($paths[0] != "gallery" || isset($paths[1]))) {
 			$embed_url = "https://i.imgur.com/".($paths[0] == "gallery"?$paths[1]:$paths[0]).".jpg";
 			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$embed_url\" /></a>", "picture");
 		}
@@ -434,10 +493,22 @@ function parse_tweet($tweet) {
 		$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 	}
 
-	$t["embeds"] = array_unique($t["embeds"]);
+	$t["embeds"] = array_unique_embeds($t["embeds"]);
 	return $t;
 }
 
+function array_unique_embeds($embeds) {
+	$codes = Array();
+	$res = Array();
+	foreach ($embeds as $embed) {
+		$code = $embed[0];
+		if (!in_array($code,$codes)) {
+			$res[] = $embed;
+			$codes[] = $code;
+		}
+	}
+	return $res;
+}
 
 
 set_time_limit(2*60); // resolving all the urls can take quite a bit of time...
@@ -455,8 +526,13 @@ if (isset($_GET["all"])) {
 }
 
 
+
 #die(var_dump(twitter_api("/application/rate_limit_status")));
 #die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
+#die(var_dump(twitter_api("/statuses/show", array("id" => "210462857140252672"))));
+#die(var_dump(twitter_api("/statuses/show", array("id" => "411397857107664896"))));
+#die(var_dump(get_tweet("409181201211998208")));
+#die(var_dump(get_tweet("411593665287446528")));
 
 $query = array(
 	"screen_name" => $user,
@@ -515,9 +591,20 @@ while (true) {
 		}
 
 		if (isset($tweet["in_reply_to_screen_name"])) {
-			$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}/".(isset($tweet["in_reply_to_status_id_str"]) ? "status/{$tweet["in_reply_to_status_id_str"]}" : "");
-			$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
-			$title .= " &#x21B0;";
+			$url = "https://twitter.com/{$tweet["in_reply_to_screen_name"]}";
+			$irt = false;
+			if (isset($tweet["in_reply_to_status_id_str"])) {
+				$url .= "/status/{$tweet["in_reply_to_status_id_str"]}";
+				$irt = get_tweet($tweet["in_reply_to_status_id_str"]);
+				if ($irt) {
+					$posted = date("c", $irt["date"]);
+					$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" title=\"$posted\" rel=\"noreferrer\">@</a>{$irt["user"]}: {$irt["text"]}";
+				}
+			}
+			if (!$irt) {
+				$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">$url</a>";
+			}
+			$title .= " &#8644;";
 		}
 
 		foreach ($t["embeds"] as $embed) {
@@ -535,8 +622,8 @@ while (true) {
 		// escape stuff
 		$title = str_replace("<", "&lt;", $title);
 		$content = str_replace("<", "&lt;", $content);
-		$title = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $title);
-		$content = preg_replace("/&(?!([a-zA-Z][a-zA-Z0-9]*|(#\d+));)/", "&amp;", $content);
+		$title = preg_replace("/&(?!([a-z][a-z0-9]*|(#\d+));)/i", "&amp;", $title);
+		$content = preg_replace("/&(?!([a-z][a-z0-9]*|(#\d+));)/i", "&amp;", $content);
 
 		echo <<<END
 
@@ -568,5 +655,3 @@ echo <<<END
 </feed>
 
 END;
-
-$db->commit();
