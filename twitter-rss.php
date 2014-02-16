@@ -36,7 +36,8 @@ It seems that links created in 2011 and earlier don't always have their urls as 
 Old tweets don't escape ampersands either.
 180 requests can be done per 15 minutes.
 TODO: Make sure we don't hit the limit.
-Check your limits by going to twitter-api.php?limits
+Check your limits by going to twitter-rss.php?limits
+The PHP extensions php_curl, php_pdo_sqlite, and php_openssl must be enabled.
 
 https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
 https://dev.twitter.com/docs/rate-limiting/1.1
@@ -102,7 +103,6 @@ try {
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
 	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE, user STRING, date INTEGER, text STRING, error INTEGER)");
-	# ALTER TABLE tweets ADD COLUMN errors INTEGER
 	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE, channel_id INTEGER)");
 	$db->beginTransaction();
 	register_shutdown_function("shutdown");
@@ -113,7 +113,7 @@ try {
 $ratelimited = false;
 
 
-// die(resolve_url("http://tinyurl.com/kfhwhdm", true));
+// die(resolve_url("http://linkd.in/1c96dgy", true));
 
 
 
@@ -268,6 +268,7 @@ function resolve_url($url, $force=false) {
 		 || stripos($location,"://www.nytimes.com/glogin") !== FALSE
 		 || stripos($location,"://www.facebook.com/unsupportedbrowser") !== FALSE
 		 || stripos($location,"://play.spotify.com/error/browser-not-supported.php") !== FALSE
+		 || stripos($location,"://www.linkedin.com/uas/login") !== FALSE
 		// TODO: Stop at blogspot country TLD redirect?
 		) {
 		 	// Stop at these redirections: (usually the last redirection, so we usually get the intended url anyway)
@@ -275,6 +276,7 @@ function resolve_url($url, $force=false) {
 			// nytimes.com has a bad reaction if it can't set cookies, and redirection loops ensues, just stop this madness
 			// Facebook redirects to unsupportedbrowser if it can't identify a known user agent
 			// Spotify is a little worse, as open.spotify.com doesn't even try to redirect to play.spotify.com if it's an unsupported user agent
+			// LinkedIn redirects you to the login page for e.g. job searches
 			break;
 		}
 
