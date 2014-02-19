@@ -113,7 +113,7 @@ try {
 $ratelimited = false;
 
 
-// die(resolve_url("http://linkd.in/1c96dgy", true));
+// die(resolve_url("http://t.co/l4Lkd4TjzM", true));
 
 
 
@@ -269,6 +269,7 @@ function resolve_url($url, $force=false) {
 		 || stripos($location,"://www.facebook.com/unsupportedbrowser") !== FALSE
 		 || stripos($location,"://play.spotify.com/error/browser-not-supported.php") !== FALSE
 		 || stripos($location,"://www.linkedin.com/uas/login") !== FALSE
+		 || stripos($location,"://www.theaustralian.com.au/remote/check_cookie.html") !== FALSE
 		// TODO: Stop at blogspot country TLD redirect?
 		) {
 		 	// Stop at these redirections: (usually the last redirection, so we usually get the intended url anyway)
