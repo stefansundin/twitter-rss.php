@@ -463,6 +463,7 @@ function parse_tweet($tweet) {
 			// embed Instagram
 			if ($host == "instagram.com" && $paths[0] == "p") {
 				$t["embeds"][] = array("<iframe src=\"$expanded_url_https_noslash/embed/\" width=\"612\" height=\"710\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"http://instagr.am/p/{$paths[1]}/media/?size=l\" /></a>", "picture");
 			}
 
 			// embed Vine
