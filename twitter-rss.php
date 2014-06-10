@@ -52,7 +52,7 @@ $access_token_secret = "xyz";
 
 date_default_timezone_set("Europe/Stockholm");
 
-#die(var_dump(get_headers("http://t.co/MdsjIIVkjO")));
+// die(var_dump(get_headers("http://t.co/hathHKRYCz")));
 
 if (isset($_GET["limits"])) {
 	if (!isset($_GET["timezone"])) {
@@ -113,7 +113,7 @@ try {
 $ratelimited = false;
 
 
-// die(resolve_url("http://t.co/l4Lkd4TjzM", true));
+// die(resolve_url("http://t.co/hathHKRYCz", true));
 
 
 
@@ -680,6 +680,10 @@ while (true) {
 		$content = str_replace("<", "&lt;", $content);
 		$title = preg_replace("/&(?!([a-z][a-z0-9]*|(#\d+));)/i", "&amp;", $title);
 		$content = preg_replace("/&(?!([a-z][a-z0-9]*|(#\d+));)/i", "&amp;", $content);
+
+		if (isset($_GET["short"])) {
+			$content = "";
+		}
 
 		echo <<<END
 
