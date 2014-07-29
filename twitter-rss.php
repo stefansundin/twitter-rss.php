@@ -617,8 +617,8 @@ if (isset($json["errors"])) {
 	die("{$json["errors"][0]["message"]} ({$json["errors"][0]["code"]})");
 }
 
-$user = $json[0]["user"]["screen_name"];
-$updated = date("c", strtotime($json[0]["created_at"]));
+$user = @$json[0]["user"]["screen_name"] ?: $user;
+$updated = date("c", strtotime(@$json[0]["created_at"]));
 
 
 header("Content-Type: application/atom+xml;charset=utf-8");
