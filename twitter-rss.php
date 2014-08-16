@@ -53,6 +53,8 @@ $access_token_secret = "xyz";
 date_default_timezone_set("Europe/Stockholm");
 
 // die(var_dump(get_headers("http://t.co/hathHKRYCz")));
+// stream_context_set_default(array("http"=>array("method"=>"GET","header"=>"Cookie: _accounts_session=...")));
+// die(var_dump(array_filter(get_headers("http://t.co/Wr6gE5aiMj"), function($h){return stripos($h,"location") === 0;})));
 
 if (isset($_GET["limits"])) {
 	if (!isset($_GET["timezone"])) {
@@ -441,6 +443,11 @@ function parse_tweet($tweet) {
 		}
 		if ($host == "i.imgur.com" && !empty($paths[0])) {
 			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url_https\" /></a>", "picture");
+		}
+
+		// embed giphy
+		if ($host == "giphy.com" && $paths[0] == "gifs" && !empty($paths[1])) {
+			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"http://media.giphy.com/media/{$paths[1]}/giphy.gif\" /></a>", "picture");
 		}
 
 		// embed pinterest
