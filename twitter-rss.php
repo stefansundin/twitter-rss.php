@@ -724,7 +724,7 @@ while (true) {
 		<link href="https://twitter.com/$user/status/$id" />
 		<updated>$updated</updated>
 		<author><name>$user</name></author>
-		<title>$title</title>
+		<title type="html">$title</title>
 		<content type="html">
 $content
 		</content>
