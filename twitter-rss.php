@@ -537,6 +537,12 @@ function parse_tweet($tweet) {
 			if ($host == "indiegogo.com" && $paths[0] == "projects") {
 				$t["embeds"][] = array("<iframe width=\"240\" height=\"510\" src=\"http://www.indiegogo.com/project/{$paths[1]}/widget\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
 			}
+
+			// embed amp.twimg
+			// SELECT * FROM urls WHERE resolved LIKE '%twimg.com%';
+			if ($host == "amp.twimg.com" && $paths[0] == "v") {
+				$t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url_https\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+			}
 		}
 
 		// embed Kickstarter
