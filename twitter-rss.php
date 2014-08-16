@@ -106,6 +106,7 @@ try {
 	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
 	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE, user STRING, date INTEGER, text STRING, error INTEGER)");
 	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE, channel_id INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS instagram (id INTEGER PRIMARY KEY, code STRING UNIQUE NOT NULL, type STRING NOT NULL)");
 	$db->beginTransaction();
 	register_shutdown_function("shutdown");
 } catch (PDOException $e) {
@@ -468,9 +469,27 @@ function parse_tweet($tweet) {
 
 		if (count($paths) >= 2) {
 			// embed Instagram
+			// find out if it's an image or video, embed with img tag if photo, use iframe otherwise
 			if ($host == "instagram.com" && $paths[0] == "p") {
-				$t["embeds"][] = array("<iframe src=\"$expanded_url_https_noslash/embed/\" width=\"612\" height=\"710\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
-				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://instagram.com/p/{$paths[1]}/media/?size=l\" /></a>", "picture");
+				$code = $paths[1];
+				$stmt = $db->prepare("SELECT type FROM instagram WHERE code=?");
+				$stmt->execute(array($code));
+				$row = $stmt->fetch(PDO::FETCH_ASSOC);
+				if ($row !== FALSE) {
+					$type = $row["type"];
+				}
+				else {
+					$json = json_decode(file_get_contents("https://api.instagram.com/oembed?url=$expanded_url"), true);
+					$type = $json["type"];
+					$stmt = $db->prepare("INSERT OR REPLACE INTO instagram VALUES (NULL,?,?)");
+					$stmt->execute(array($code, $type));
+				}
+				if ($type == "photo") {
+					$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://instagram.com/p/{$paths[1]}/media/?size=l\" /></a>", "picture");
+				}
+				else {
+					$t["embeds"][] = array("<iframe src=\"$expanded_url_https_noslash/embed/\" width=\"612\" height=\"710\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+				}
 			}
 
 			// embed Vine
