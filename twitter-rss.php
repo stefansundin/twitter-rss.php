@@ -42,7 +42,7 @@ The PHP extensions php_curl, php_pdo_sqlite, and php_openssl must be enabled.
 https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
 https://dev.twitter.com/docs/rate-limiting/1.1
 https://dev.twitter.com/docs/tweet-entities
-http://creativecommons.org/licenses/by/3.0/
+https://creativecommons.org/licenses/by/3.0/
 */
 
 $consumer_key = "xxx";
@@ -103,9 +103,9 @@ $user = $_GET["user"];
 try {
 	$db = new PDO("sqlite:twitter-rss.db");
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
-	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE, user STRING, date INTEGER, text STRING, error INTEGER)");
-	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE, channel_id INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE NOT NULL, resolved STRING NOT NULL, first_seen INTEGER, last_seen INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE NOT NULL, user STRING NOT NULL, date INTEGER NOT NULL, text STRING NOT NULL, error INTEGER NOT NULL)");
+	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE NOT NULL, channel_id INTEGER NOT NULL)");
 	$db->exec("CREATE TABLE IF NOT EXISTS instagram (id INTEGER PRIMARY KEY, code STRING UNIQUE NOT NULL, type STRING NOT NULL)");
 	$db->beginTransaction();
 	register_shutdown_function("shutdown");
@@ -202,6 +202,20 @@ function double_explode($del1, $del2, $str) {
 	return $res;
 }
 
+function httpsify($url) {
+	// make sure we use https for certain domains
+	// the purpose is, for now, mainly for embedding
+	$host = parse_url($url, PHP_URL_HOST);
+	if (preg_match("/([^\.]+\.[^\.]+)$/",$host,$matches) === 1) {
+		// extract base domain (e.g. i.instagram.com -> instagram.com)
+		$host = $matches[1];
+	}
+	if (in_array($host,explode(",","youtube.com,vimeo.com,ustream.tv,twitpic.com,imgur.com,pinterest.com,instagram.com,giphy.com,vine.co,flickr.com,spotify.com,indiegogo.com,kickstarter.com,soundcloud.com,twimg.com"))) {
+		$url = preg_replace("/^http:\/\//", "https://", $url);
+	}
+	return $url;
+}
+
 function normalize_url($url) {
 	// make protocol and host lowercase and make sure the path has a slash at the end
 	// this is to reduce duplicates in db and unnecessary resolves
@@ -216,14 +230,6 @@ function resolve_url($url, $force=false) {
 	$original_url = $url = normalize_url($url);
 	#ini_set("user_agent", "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:22.0) Gecko/20100101 Firefox/22.0"); // wp.me
 	// t.co uses a HTML redirect if a web browser user agent is used (this is a problem if $url redirect to another t.co, which happens on twitter but is really just silly if you think about it, these url shorterners are redirecting to each other like 2-5 times before you arrive at your url, talk about slowing down the web unnecessarily)
-
-	/*
-	$shorteners = array("bit.ly", "t.co", "tinyurl.com", "wp.me", "goo.gl", "fb.me", "is.gd", "tiny.cc", "youtu.be", "yt.be", "flic.kr", "tr.im", "ow.ly", "t.cn", "url.cn", "g.co", "is.gd", "su.pr", "aje.me");
-	$host = parse_url($url, PHP_URL_HOST);
-	if (!in_array($host,$shorteners)) {
-		return $url;
-	}
-	*/
 
 	// try to get resolved url from db
 	if (!$force) {
@@ -344,7 +350,7 @@ function get_tweet($id, $force=false, $user=null) {
 	$tweet["text"] = str_replace("\n", " ", $json["text"]);
 
 	foreach ($json["entities"]["urls"] as $url) {
-		$expanded_url = resolve_url($url["expanded_url"]);
+		$expanded_url = httpsify(resolve_url($url["expanded_url"]));
 		$tweet["text"] = str_replace($url["url"], $expanded_url, $tweet["text"]);
 	}
 
@@ -375,9 +381,8 @@ function parse_tweet($tweet) {
 
 	// expand urls
 	foreach ($tweet["entities"]["urls"] as $url) {
-		$expanded_url = resolve_url($url["expanded_url"]);
-		$expanded_url_https = preg_replace("/^http:\/\//", "https://", $expanded_url);
-		$expanded_url_https_noslash = preg_replace("/\/$/", "", $expanded_url_https);
+		$expanded_url = httpsify(resolve_url($url["expanded_url"]));
+		$expanded_url_noslash = preg_replace("/\/$/", "", $expanded_url);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
 		$paths = explode("/", trim($path,"/"));
@@ -396,7 +401,7 @@ function parse_tweet($tweet) {
 		}
 
 		// embed Vimeo
-		if ($host == "vimeo.com" && preg_match("/\/(\d+)/",$path,$matches) > 0) {
+		if ($host == "vimeo.com" && preg_match("/\/(\d+)/",$path,$matches) === 1) {
 			$t["embeds"][] = array("<iframe width=\"853\" height=\"480\" src=\"https://player.vimeo.com/video/{$matches[1]}\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 		}
 
@@ -405,7 +410,7 @@ function parse_tweet($tweet) {
 		if ($host == "ustream.tv" && !in_array($paths[0],explode(",",",blog,contact-us,copyright-policy,forgot-password,forgot-username,howto,information,login-signup,new,our-company,platform,premium-membership,press,privacy-policy,producer,services,terms,user,ustream-pro"))
 		 && !($paths[0] == "channel" && !isset($paths[1]))) {
 			if ($paths[0] == "recorded" && isset($paths[1]) && is_numeric($paths[1])) {
-				$t["embeds"][] = array("<iframe width=\"640\" height=\"392\" src=\"http://www.ustream.tv/embed$path?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+				$t["embeds"][] = array("<iframe width=\"640\" height=\"392\" src=\"https://www.ustream.tv/embed$path?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 			}
 			else {
 				$channel_name = strtolower(rawurldecode(($paths[0] == "channel")?$paths[1]:$paths[0]));
@@ -417,7 +422,7 @@ function parse_tweet($tweet) {
 				}
 				else {
 					$code = file_get_contents($expanded_url); // we could maybe use the ustream API here, but that requires a key so this is fine
-					if (preg_match("/ name=\"ustream:channel_id\" content=\"(\d+)\"/",$code,$matches) > 0) {
+					if (preg_match("/ name=\"ustream:channel_id\" content=\"(\d+)\"/",$code,$matches) === 1) {
 						$channel_id = $matches[1];
 					}
 					else {
@@ -427,13 +432,13 @@ function parse_tweet($tweet) {
 					$stmt->execute(array($channel_name, $channel_id));
 				}
 				if ($channel_id != NULL) {
-					$t["embeds"][] = array("<iframe width=\"640\" height=\"392\" src=\"http://www.ustream.tv/embed/$channel_id?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+					$t["embeds"][] = array("<iframe width=\"640\" height=\"392\" src=\"https://www.ustream.tv/embed/$channel_id?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 				}
 			}
 		}
 
 		// embed TwitPic
-		if ($host == "twitpic.com" && preg_match("/\/([a-z0-9]+)/",$path,$matches) > 0) {
+		if ($host == "twitpic.com" && preg_match("/\/([a-z0-9]+)/",$path,$matches) === 1) {
 			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://twitpic.com/show/large/{$matches[1]}.jpg\" /></a>", "picture");
 		}
 
@@ -443,7 +448,7 @@ function parse_tweet($tweet) {
 			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$embed_url\" /></a>", "picture");
 		}
 		if ($host == "i.imgur.com" && !empty($paths[0])) {
-			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url_https\" /></a>", "picture");
+			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url\" /></a>", "picture");
 		}
 
 		// embed pinterest
@@ -465,7 +470,7 @@ function parse_tweet($tweet) {
 		if (count($paths) >= 2) {
 			// embed Instagram
 			// find out if it's an image or video, embed with img tag if photo, use iframe otherwise
-			if ($host == "instagram.com" && $paths[0] == "p") {
+			if (preg_match("/^(i\.)?instagram\.com$/",$host) === 1 && $paths[0] == "p") {
 				$code = $paths[1];
 				$stmt = $db->prepare("SELECT type FROM instagram WHERE code=?");
 				$stmt->execute(array($code));
@@ -474,7 +479,11 @@ function parse_tweet($tweet) {
 					$type = $row["type"];
 				}
 				else {
-					$json = json_decode(file_get_contents("https://api.instagram.com/oembed?url=$expanded_url"), true);
+					// oembed api does not work with i.instagram.com
+					if ($host == "i.instagram.com") {
+						$oembed_url = str_replace($expanded_url, "i.instagram.com", "instagram.com");
+					}
+					$json = json_decode(file_get_contents("https://api.instagram.com/oembed?url=".($oembed_url?:$expanded_url)), true);
 					$type = $json["type"];
 					$stmt = $db->prepare("INSERT OR REPLACE INTO instagram VALUES (NULL,?,?)");
 					$stmt->execute(array($code, $type));
@@ -483,13 +492,13 @@ function parse_tweet($tweet) {
 					$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://instagram.com/p/{$paths[1]}/media/?size=l\" /></a>", "picture");
 				}
 				else {
-					$t["embeds"][] = array("<iframe src=\"$expanded_url_https_noslash/embed/\" width=\"612\" height=\"710\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+					$t["embeds"][] = array("<iframe src=\"$expanded_url_noslash/embed/\" width=\"612\" height=\"710\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 				}
 			}
 
 			// embed giphy
 			if ($host == "giphy.com" && $paths[0] == "gifs") {
-				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"http://media.giphy.com/media/{$paths[1]}/giphy.gif\" /></a>", "picture");
+				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://media.giphy.com/media/{$paths[1]}/giphy.gif\" /></a>", "picture");
 			}
 
 			// embed Vine
@@ -535,19 +544,19 @@ function parse_tweet($tweet) {
 
 			// embed Indiegogo
 			if ($host == "indiegogo.com" && $paths[0] == "projects") {
-				$t["embeds"][] = array("<iframe width=\"240\" height=\"510\" src=\"http://www.indiegogo.com/project/{$paths[1]}/widget\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
+				$t["embeds"][] = array("<iframe width=\"240\" height=\"510\" src=\"https://www.indiegogo.com/project/{$paths[1]}/widget\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
 			}
 
 			// embed amp.twimg
 			// SELECT * FROM urls WHERE resolved LIKE '%twimg.com%';
 			if ($host == "amp.twimg.com" && $paths[0] == "v") {
-				$t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url_https\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+				$t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 			}
 		}
 
 		// embed Kickstarter
 		if ($host == "kickstarter.com" && count($paths) >= 3 && $paths[0] == "projects") {
-			$t["embeds"][] = array("<iframe width=\"220\" height=\"380\" src=\"http://www.kickstarter.com/projects/{$paths[1]}/{$paths[2]}/widget/card.html\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
+			$t["embeds"][] = array("<iframe width=\"220\" height=\"380\" src=\"https://www.kickstarter.com/projects/{$paths[1]}/{$paths[2]}/widget/card.html\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
 		}
 
 		// embed SoundCloud
