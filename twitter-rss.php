@@ -446,11 +446,6 @@ function parse_tweet($tweet) {
 			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"$expanded_url_https\" /></a>", "picture");
 		}
 
-		// embed giphy
-		if ($host == "giphy.com" && $paths[0] == "gifs" && !empty($paths[1])) {
-			$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"http://media.giphy.com/media/{$paths[1]}/giphy.gif\" /></a>", "picture");
-		}
-
 		// embed pinterest
 		// pinterest embeds using JavaScript, so encapsulate that in a simple website. bah!
 		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_,search,about,fashionweek"))) {
@@ -490,6 +485,11 @@ function parse_tweet($tweet) {
 				else {
 					$t["embeds"][] = array("<iframe src=\"$expanded_url_https_noslash/embed/\" width=\"612\" height=\"710\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 				}
+			}
+
+			// embed giphy
+			if ($host == "giphy.com" && $paths[0] == "gifs") {
+				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"http://media.giphy.com/media/{$paths[1]}/giphy.gif\" /></a>", "picture");
 			}
 
 			// embed Vine
