@@ -103,10 +103,10 @@ $user = $_GET["user"];
 try {
 	$db = new PDO("sqlite:twitter-rss.db");
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE NOT NULL, resolved STRING NOT NULL, first_seen INTEGER, last_seen INTEGER)");
-	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE NOT NULL, user STRING NOT NULL, date INTEGER NOT NULL, text STRING NOT NULL, error INTEGER NOT NULL)");
-	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE NOT NULL, channel_id INTEGER NOT NULL)");
-	$db->exec("CREATE TABLE IF NOT EXISTS instagram (id INTEGER PRIMARY KEY, code STRING UNIQUE NOT NULL, type STRING NOT NULL)");
+	$db->exec("CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url STRING UNIQUE NOT NULL, resolved STRING, first_seen INTEGER, last_seen INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS tweets (id INTEGER PRIMARY KEY, tweet_id STRING UNIQUE NOT NULL, user STRING NOT NULL, date INTEGER, text STRING, error INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS ustream (id INTEGER PRIMARY KEY, channel_name STRING UNIQUE NOT NULL, channel_id INTEGER)");
+	$db->exec("CREATE TABLE IF NOT EXISTS instagram (id INTEGER PRIMARY KEY, code STRING UNIQUE NOT NULL, type STRING)");
 	$db->beginTransaction();
 	register_shutdown_function("shutdown");
 } catch (PDOException $e) {
@@ -421,7 +421,7 @@ function parse_tweet($tweet) {
 					$channel_id = $row["channel_id"];
 				}
 				else {
-					$code = file_get_contents($expanded_url); // we could maybe use the ustream API here, but that requires a key so this is fine
+					$code = @file_get_contents($expanded_url); // we could maybe use the ustream API here, but that requires a key so this is fine
 					if (preg_match("/ name=\"ustream:channel_id\" content=\"(\d+)\"/",$code,$matches) === 1) {
 						$channel_id = $matches[1];
 					}
@@ -479,11 +479,10 @@ function parse_tweet($tweet) {
 					$type = $row["type"];
 				}
 				else {
-					// oembed api does not work with i.instagram.com
-					if ($host == "i.instagram.com") {
-						$oembed_url = str_replace($expanded_url, "i.instagram.com", "instagram.com");
-					}
-					$json = json_decode(file_get_contents("https://api.instagram.com/oembed?url=".($oembed_url?:$expanded_url)), true);
+					// oembed api does not work with i.instagram.com, and must use http://
+					// in case of error, store type as NULL and iframe will be used
+					$oembed_url = preg_replace(array("/^https:/","/i\.instagram\.com/"), array("http:","instagram.com"), $expanded_url);
+					$json = json_decode(@file_get_contents("https://api.instagram.com/oembed?url=$oembed_url"), true);
 					$type = $json["type"];
 					$stmt = $db->prepare("INSERT OR REPLACE INTO instagram VALUES (NULL,?,?)");
 					$stmt->execute(array($code, $type));
