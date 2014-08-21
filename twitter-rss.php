@@ -477,7 +477,7 @@ function process_tweet($t) {
 		// resolve and cache ustream channel ids in db
 		if ($host == "ustream.tv" && !in_array($paths[0],explode(",",",blog,contact-us,copyright-policy,forgot-password,forgot-username,howto,information,login-signup,new,our-company,platform,premium-membership,press,privacy-policy,producer,services,terms,user,ustream-pro"))
 		 && !($paths[0] == "channel" && !isset($paths[1]))) {
-			if ($paths[0] == "recorded" && isset($paths[1]) && is_numeric($paths[1])) {
+			if ($paths[0] == "recorded" && isset($paths[1]) && ctype_digit($paths[1])) {
 				$t["embeds"][] = array("<iframe width=\"640\" height=\"392\" src=\"https://www.ustream.tv/embed$path?v=3&wmode=direct\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 			}
 			else {
@@ -523,7 +523,7 @@ function process_tweet($t) {
 		// pinterest embeds using JavaScript, so encapsulate that in a simple website. bah!
 		if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_,search,about,fashionweek"))) {
 			if ($paths[0] == "pin") {
-				if (isset($paths[1]) && is_numeric($paths[1])) {
+				if (isset($paths[1]) && ctype_digit($paths[1])) {
 					$t["embeds"][] = array("<iframe width=\"270\" height=\"500\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "picture");
 				}
 			}
@@ -594,15 +594,10 @@ function process_tweet($t) {
 				$t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"http://static.ow.ly/photos/normal/{$paths[1]}.jpg\" /></a>", "picture");
 			}
 
-			// embed flickr
-			// flickr blocks iframe embeds, so hide referer by using a website which does a meta refresh
-			if ($host == "flickr.com" && $paths[0] == "photos") {
-				if (count($paths) == 2 || (count($paths) >= 4 && $paths[2] == "sets")) {
-					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" srcdoc='<meta http-equiv=\"refresh\" content=\"0;url=$expanded_url/show\">' src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/show\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
-				}
-				else if (count($paths) >= 3 && (is_numeric($paths[2]) || $paths[2] == "favorites" || (count($paths) >= 4 && $paths[2] == "galleries"))) {
-					$t["embeds"][] = array("<iframe width=\"800\" height=\"533\" srcdoc='<meta http-equiv=\"refresh\" content=\"0;url=$expanded_url/lightbox\">' src=\"http://stefansundin.com/stuff/hide-referer.php?url=$expanded_url/lightbox\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
-				}
+			// embed Flickr
+			if ($host == "flickr.com" && $paths[0] == "photos"
+			 && ((count($paths) == 3 && ctype_digit($paths[2])) || (count($paths) >= 4 && $paths[2] == "sets") || (count($paths) >= 5 && $paths[3] == "in"))) {
+				$t["embeds"][] = array("<iframe width=\"800\" height=\"534\" src=\"$expanded_url_noslash/player/\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
 			}
 
 			// embed Spotify
