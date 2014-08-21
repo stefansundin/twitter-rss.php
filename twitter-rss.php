@@ -52,6 +52,55 @@ $access_token_secret = "xyz";
 
 date_default_timezone_set("Europe/Stockholm");
 
+
+// edit this function to be notified of script errors by email
+function mail_error($error) {
+	return; // comment this line out and edit this function if you want to use this
+	$error["timestamp"] = strftime("%Y-%m-%d %T");
+	$error["ip"] = $_SERVER["REMOTE_ADDR"];
+	$headers = <<<EOF
+From: php@example.com
+Content-Type: text/plain; charset=utf-8
+EOF;
+	mail("you@example.com", "twitter-rss.php error", print_r($error,true), $headers);
+}
+
+function log_exception($exception) {
+	mail_error(array(
+		"handler" => "exception",
+		"type"    => $exception->getCode(),
+		"message" => $exception->getMessage(),
+		"file"    => $exception->getFile(),
+		"line"    => $exception->getLine(),
+		"trace"   => $exception->getTrace()
+	));
+}
+
+function log_error($errno, $errstr, $errfile, $errline) {
+	mail_error(array(
+		"handler" => "error",
+		"type"    => $errno,
+		"message" => $errstr,
+		"file"    => $errfile,
+		"line"    => $errline
+	));
+	return false;
+}
+
+function log_shutdown() {
+	$error = error_get_last();
+	if ($error != NULL) {
+		$error["handler"] = "shutdown";
+		mail_error($error);
+	}
+}
+
+set_exception_handler("log_exception");
+set_error_handler("log_error");
+register_shutdown_function("log_shutdown");
+// ini_set("display_errors", 0);
+
+
 // die(var_dump(get_headers("http://t.co/hathHKRYCz")));
 // stream_context_set_default(array("http"=>array("method"=>"GET","header"=>"Cookie: _accounts_session=...")));
 // die(var_dump(array_filter(get_headers("http://t.co/Wr6gE5aiMj"), function($h){return stripos($h,"location") === 0;})));
@@ -98,7 +147,7 @@ if (!isset($_GET["user"])) {
 $user = $_GET["user"];
 
 
-// setup url resolution db
+// setup database
 try {
 	$db = new PDO("sqlite:twitter-rss.db");
 	$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
