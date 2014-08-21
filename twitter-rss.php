@@ -76,7 +76,6 @@ END;
 	$json = twitter_api("/application/rate_limit_status");
 	foreach ($json["resources"] as $resource) {
 		foreach ($resource as $endpoint => $info) {
-			// var_dump($info)
 			if ($info["remaining"] != $info["limit"]) {
 				$diff = (new DateTime())->diff(new DateTime("@{$info["reset"]}"));
 				$reset = date("Y-m-d H:i:s", $info["reset"]);
@@ -219,7 +218,7 @@ function httpsify($url) {
 function normalize_url($url) {
 	// make protocol and host lowercase and make sure the path has a slash at the end
 	// this is to reduce duplicates in db and unnecessary resolves
-	if (preg_match("/^([a-z]+:\/\/[^\/]+)\/?(.*)$/i", $url, $matches) > 0) {
+	if (preg_match("/^([a-z]+:\/\/[^\/]+)\/?(.*)$/i", $url, $matches) === 1) {
 		return strtolower($matches[1])."/".$matches[2];
 	}
 	return $url;
@@ -227,6 +226,7 @@ function normalize_url($url) {
 
 function resolve_url($url, $force=false) {
 	global $db;
+
 	$original_url = $url = normalize_url($url);
 	#ini_set("user_agent", "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:22.0) Gecko/20100101 Firefox/22.0"); // wp.me
 	// t.co uses a HTML redirect if a web browser user agent is used (this is a problem if $url redirect to another t.co, which happens on twitter but is really just silly if you think about it, these url shorterners are redirecting to each other like 2-5 times before you arrive at your url, talk about slowing down the web unnecessarily)
@@ -259,7 +259,6 @@ function resolve_url($url, $force=false) {
 		$url = $wwwurl;
 	}
 
-	#var_dump($headers);
 	// go through the headers
 	foreach ($headers as $header) {
 		$parts = explode(":", $header, 2);
@@ -300,24 +299,19 @@ function resolve_url($url, $force=false) {
 	return $url;
 }
 
-function get_tweet($id, $force=false, $user=null) {
+function get_tweet($tweet_id, $force=false, $user=null) {
 	global $db, $ratelimited;
-
-	// This regex is pretty close to Twitter's regex, but more relaxed since it allows invalid domain names
-	// The important part is pretty much deciding which characters can't be at the end of the url
-	// A nice way to test Twitter's url detection is to compose a new tweet and see when the url turns blue
-	// $url_regex = "/(^|[^a-z0-9])https?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:]+(?<![%\.~?\[\]@!$&'()*,;:])/ig";
 
 	// try to get tweet from db
 	if (!$force) {
 		$stmt = $db->prepare("SELECT * FROM tweets WHERE tweet_id=?");
-		$stmt->execute(array($id));
-		$tweet = $stmt->fetch(PDO::FETCH_ASSOC);
-		if ($tweet !== FALSE) {
-			if ($tweet["error"] != null) {
+		$stmt->execute(array($tweet_id));
+		$t = $stmt->fetch(PDO::FETCH_ASSOC);
+		if ($t !== FALSE) {
+			if ($t["error"] != null) {
 				return false;
 			}
-			return $tweet;
+			return process_tweet($t);
 		}
 	}
 
@@ -327,72 +321,97 @@ function get_tweet($id, $force=false, $user=null) {
 	}
 
 	// get the tweet
-	$json = twitter_api("/statuses/show", array("id" => $id));
-	if (isset($json["error"]) || isset($json["errors"])) {
-		if (in_array($json["errors"][0]["code"], array(179,34))) {
+	$tweet = twitter_api("/statuses/show", array("id" => $tweet_id));
+	if (isset($tweet["error"]) || isset($tweet["errors"])) {
+		if (in_array($tweet["errors"][0]["code"], array(179,34))) {
 			// 179: Sorry, you are not authorized to see this status.
 			// 34: Sorry, that page does not exist
 			$stmt = $db->prepare("INSERT OR REPLACE INTO tweets VALUES (NULL,?,?,NULL,NULL,?)");
-			$stmt->execute(array($tweet["tweet_id"], $user, $json["errors"][0]["code"]));
+			$stmt->execute(array($tweet["id_str"], $user, $tweet["errors"][0]["code"]));
 			return false;
 		}
-		else if ($json["errors"][0]["code"] == 88) {
+		else if ($tweet["errors"][0]["code"] == 88) {
 			// rate limit exceeded
 			$ratelimited = true;
 		}
 		return false;
 	}
 
-
-	$tweet["tweet_id"] = $json["id_str"];
-	$tweet["user"] = $json["user"]["screen_name"];
-	$tweet["date"] = strtotime($json["created_at"]);
-	$tweet["text"] = str_replace("\n", " ", $json["text"]);
-
-	foreach ($json["entities"]["urls"] as $url) {
-		$expanded_url = httpsify(resolve_url($url["expanded_url"]));
-		$tweet["text"] = str_replace($url["url"], $expanded_url, $tweet["text"]);
-	}
+	$t = parse_tweet($tweet);
 
 	// store tweet in db
 	$stmt = $db->prepare("INSERT OR REPLACE INTO tweets VALUES (NULL,?,?,?,?,NULL)");
-	$stmt->execute(array($tweet["tweet_id"], $tweet["user"], $tweet["date"], $tweet["text"]));
+	$stmt->execute(array($t["tweet_id"], $t["user"], $t["date"], $t["text"]));
 
-	return $tweet;
+	return process_tweet($t);
 }
 
 function parse_tweet($tweet) {
 	global $db;
-	#$tweet["text"] = htmlspecialchars($tweet["text"], ENT_NOQUOTES|ENT_XML1, 'UTF-8', false);
-	$tweet["text"] = htmlspecialchars_decode($tweet["text"], ENT_QUOTES);
-	$tweet["text"] = str_replace(array("&","<",">"), array("&amp;","&amp;lt;","&amp;gt;"), $tweet["text"]);
+
 	$t = array(
-		"id"      => $tweet["id_str"],
-		"date"    => $tweet["created_at"],
-		"user"    => $tweet["user"]["screen_name"],
-		"title"   => $tweet["text"],
-		"text"    => $tweet["text"],
-		"embeds"  => array()
+		"tweet_id" => $tweet["id_str"],
+		"user"     => $tweet["user"]["screen_name"],
+		"date"     => strtotime($tweet["created_at"]),
+		"text"     => unscramble_text($tweet["text"]),
 	);
 
-	if (!isset($tweet["entities"]["media"])) {
-		$tweet["entities"]["media"] = array();
+	// replace links
+	foreach ($tweet["entities"]["urls"] as $entity) {
+		$t["text"] = str_replace($entity["url"], $entity["expanded_url"], $t["text"]);
 	}
 
-	// expand urls
-	foreach ($tweet["entities"]["urls"] as $url) {
-		$expanded_url = httpsify(resolve_url($url["expanded_url"]));
+	// replace media (Twitter pics)
+	if (isset($tweet["entities"]["media"])) {
+		foreach ($tweet["entities"]["media"] as $entity) {
+			$url = "https://".$entity["display_url"];
+			$t["text"] = str_replace($entity["url"], $url, $t["text"]);
+			$media_url = $entity["media_url_https"].":large"; // use large picture
+			// insert url pointer to the media url
+			$stmt = $db->prepare("INSERT OR REPLACE INTO urls VALUES (NULL,?,?,?,COALESCE((SELECT last_seen FROM urls WHERE url = ?), ?))");
+			$stmt->execute(array($url, $media_url, time(), $url, time()));
+			$stmt = $db->prepare("UPDATE urls SET last_seen=? WHERE url=?");
+			$stmt->execute(array(time(), $url));
+		}
+	}
+
+	return $t;
+}
+
+function unscramble_text($text) {
+	// $text = htmlspecialchars($text, ENT_NOQUOTES|ENT_XML1, 'UTF-8', false);
+	$text = htmlspecialchars_decode($text, ENT_QUOTES);
+	$text = str_replace("\n", " ", $text);
+	return $text;
+}
+
+function process_tweet($t) {
+	global $db;
+
+	$t["text"] = str_replace(array("&","<",">"), array("&amp;","&amp;lt;","&amp;gt;"), $t["text"]);
+	$t["title"] = $t["text"];
+	$t["embeds"] = array();
+
+	// Resolve urls and embed things
+	// This regex is pretty close to Twitter's regex, but more relaxed since it allows invalid domain names
+	// The important part is pretty much deciding which characters can't be at the end of the url
+	// A nice way to test Twitter's url detection is to compose a new tweet and see when the url turns blue
+	$url_regex = "/(?:^|[^a-z0-9])(https?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:]+(?<![%\.~?\[\]@!$&'()*,;:]))/i";
+	preg_match_all($url_regex, $t["text"], $matches);
+
+	foreach ($matches[1] as $url) {
+		$expanded_url = httpsify(resolve_url($url));
 		$expanded_url_noslash = preg_replace("/\/$/", "", $expanded_url);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
 		$path = parse_url($expanded_url, PHP_URL_PATH);
 		$paths = explode("/", trim($path,"/"));
 		$query = array_merge(
-			double_explode("&", "=", parse_url($expanded_url,PHP_URL_QUERY)),
-			double_explode("&", "=", parse_url($expanded_url,PHP_URL_FRAGMENT))
+			double_explode("&", "=", parse_url($expanded_url, PHP_URL_QUERY)),
+			double_explode("&", "=", parse_url($expanded_url, PHP_URL_FRAGMENT))
 		);
 
-		$t["text"] = str_replace($url["url"], "<a href=\"$expanded_url\" title=\"{$url["display_url"]} {$url["url"]}\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
-		$t["title"] = str_replace($url["url"], "[$host]", $t["title"]);
+		$t["text"] = str_replace($url, "<a href=\"$expanded_url\" title=\"$url\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
+		$t["title"] = str_replace($url, "[$host]", $t["title"]);
 
 		// embed YouTube
 		if (($host == "youtube.com" || $host == "m.youtube.com") && (isset($query["v"]) || isset($query["list"]))) {
@@ -468,6 +487,17 @@ function parse_tweet($tweet) {
 		}
 
 		if (count($paths) >= 2) {
+			// embed pbs.twimg (twitter pics)
+			if ($host == "pbs.twimg.com" && $paths[0] == "media") {
+				$t["embeds"][] = array("<a href=\"$url\" title=\"$url\" rel=\"noreferrer\"><img src=\"$expanded_url\" /></a>", "picture");
+			}
+
+			// embed amp.twimg
+			// SELECT * FROM urls WHERE resolved LIKE '%twimg.com%';
+			if ($host == "amp.twimg.com" && $paths[0] == "v") {
+				$t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
+			}
+
 			// embed Instagram
 			// find out if it's an image or video, embed with img tag if photo, use iframe otherwise
 			if (preg_match("/^(i\.)?instagram\.com$/",$host) === 1 && $paths[0] == "p") {
@@ -545,12 +575,6 @@ function parse_tweet($tweet) {
 			if ($host == "indiegogo.com" && $paths[0] == "projects") {
 				$t["embeds"][] = array("<iframe width=\"240\" height=\"510\" src=\"https://www.indiegogo.com/project/{$paths[1]}/widget\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "money");
 			}
-
-			// embed amp.twimg
-			// SELECT * FROM urls WHERE resolved LIKE '%twimg.com%';
-			if ($host == "amp.twimg.com" && $paths[0] == "v") {
-				$t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
-			}
 		}
 
 		// embed Kickstarter
@@ -571,24 +595,12 @@ function parse_tweet($tweet) {
 		}
 	}
 
-	// expand media (Twitter pics)
-	foreach ($tweet["entities"]["media"] as $url) {
-		$media_url = str_replace("&", "&amp;", $url["media_url_https"].":large"); // use large picture
-		$t["text"] = str_replace($url["url"], "<a href=\"https://{$url["display_url"]}\" title=\"{$url["display_url"]}\" rel=\"noreferrer\">https://{$url["display_url"]}</a>", $t["text"]);
-		$t["embeds"][] = array("<a href=\"$media_url\" title=\"{$url["display_url"]}\" rel=\"noreferrer\"><img src=\"$media_url\" /></a>", "picture");
-		// replace url in title, can't use parse_url() to find the host since it doesn't use a protocol (will almost certainly always be pic.twitter.com though)
-		if (preg_match("/^(?:[a-zA-Z]+:\/\/)?([^\/]+)/",$url["display_url"],$matches) > 0) {
-			$t["title"] = str_replace($url["url"], "[{$matches[1]}]", $t["title"]);
-		}
-	}
-
-	// embed Spotify (plain text uri)
+	// embed Spotify plain text uri
 	preg_match_all("/spotify:(?:(?:album|artist|track):(?:[a-zA-Z0-9]+)|user:(?:[a-zA-Z0-9]+):playlist:(?:[a-zA-Z0-9]+))/", $t["text"], $matches);
 	foreach ($matches[0] as $uri) {
 		$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 	}
 
-	$t["embeds"] = array_unique_embeds($t["embeds"]);
 	return $t;
 }
 
@@ -630,8 +642,8 @@ if (isset($_GET["all"])) {
 // 	die(var_dump(get_tweet("411593665287446528")));
 // }
 // die();
-#die(var_dump(get_tweet("409181201211998208")));
-#die(var_dump(get_tweet("411593665287446528")));
+// die(var_dump(get_tweet("411593665287446528", true)));
+
 
 $query = array(
 	"screen_name" => $user,
@@ -643,22 +655,22 @@ $query = array(
 	#"contributor_details" => true,
 );
 
-$json = twitter_api("/statuses/user_timeline", $query);
-#die(var_dump($json));
+$tweets = twitter_api("/statuses/user_timeline", $query);
+#die(var_dump($tweets));
 
 
 
-if (isset($json["error"])) {
+if (isset($tweets["error"])) {
 	http_response_code(503);
-	die($json["error"]);
+	die($tweets["error"]);
 }
-if (isset($json["errors"])) {
+if (isset($tweets["errors"])) {
 	http_response_code(429);
-	die("{$json["errors"][0]["message"]} ({$json["errors"][0]["code"]})");
+	die("{$tweets["errors"][0]["message"]} ({$tweets["errors"][0]["code"]})");
 }
 
-$user = @$json[0]["user"]["screen_name"] ?: $user;
-$updated = date("c", strtotime(@$json[0]["created_at"]));
+$user = @$tweets[0]["user"]["screen_name"] ?: $user;
+$updated = date("c", strtotime(@$tweets[0]["created_at"]));
 
 
 header("Content-Type: application/atom+xml;charset=utf-8");
@@ -674,17 +686,17 @@ echo <<<END
 END;
 
 while (true) {
-	foreach ($json as $tweet) {
+	foreach ($tweets as $tweet) {
 		$id = $tweet["id_str"];
 		$updated = date("c", strtotime($tweet["created_at"]));
 
 		if (isset($tweet["retweeted_status"])) {
-			$t = parse_tweet($tweet["retweeted_status"]);
+			$t = process_tweet(parse_tweet($tweet["retweeted_status"]));
 			$title = "$user: RT @{$t["user"]}: {$t["title"]}";
 			$content = "$user: RT @{$t["user"]}: {$t["text"]}";
 		}
 		else {
-			$t = parse_tweet($tweet);
+			$t = process_tweet(parse_tweet($tweet));
 			$title = "$user: {$t["title"]}";
 			$content = "$user: {$t["text"]}";
 		}
@@ -695,14 +707,16 @@ while (true) {
 			if ($irt) {
 				$posted = date("c", $irt["date"]);
 				$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" title=\"$posted\" rel=\"noreferrer\">{$irt["user"]}</a>: {$irt["text"]}";
+				$t["embeds"] = array_merge($t["embeds"], $irt["embeds"]);
 			}
 			else {
-				// probably ratelimited
+				// probably ratelimited or deleted tweet
 				$content .= "\n<br/><br/>\nIn reply to: <a href=\"$url\" rel=\"noreferrer\">{$irt["user"]}</a>";
 			}
 			$title .= " &#8644;";
 		}
 
+		$t["embeds"] = array_unique_embeds($t["embeds"]);
 		foreach ($t["embeds"] as $embed) {
 			$content .= "\n<br/><br/>\n{$embed[0]}";
 			if (stripos($embed[0],"src=\"http://") !== FALSE) {
@@ -743,12 +757,12 @@ END;
 		flush();
 	}
 
-	if (!isset($getall) || count($json) == 0) {
+	if (!isset($getall) || count($tweets) == 0) {
 		break;
 	}
 
-	$query["max_id"] = bcsub($json[count($json)-1]["id_str"], "1");
-	$json = twitter_api("/statuses/user_timeline", $query);
+	$query["max_id"] = bcsub($tweets[count($tweets)-1]["id_str"], "1");
+	$tweets = twitter_api("/statuses/user_timeline", $query);
 }
 
 echo <<<END
