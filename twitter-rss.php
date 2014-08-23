@@ -405,23 +405,29 @@ function parse_tweet($tweet) {
 		"text"     => unscramble_text($tweet["text"]),
 	);
 
-	// replace links
-	foreach ($tweet["entities"]["urls"] as $entity) {
-		$t["text"] = str_replace($entity["url"], $entity["expanded_url"], $t["text"]);
+	$entities = $tweet["entities"]["urls"];
+	if (isset($tweet["entities"]["media"])) {
+		$entities = array_merge($entities, $tweet["entities"]["media"]);
 	}
 
-	// replace media (Twitter pics)
-	if (isset($tweet["entities"]["media"])) {
-		foreach ($tweet["entities"]["media"] as $entity) {
-			$url = "https://".$entity["display_url"];
-			$t["text"] = str_replace($entity["url"], $url, $t["text"]);
-			$media_url = $entity["media_url_https"].":large"; // use large picture
-			// insert url pointer to the media url
-			$stmt = $db->prepare("INSERT OR REPLACE INTO urls VALUES (NULL,?,?,?,COALESCE((SELECT last_seen FROM urls WHERE url = ?), ?))");
-			$stmt->execute(array($url, $media_url, time(), $url, time()));
-			$stmt = $db->prepare("UPDATE urls SET last_seen=? WHERE url=?");
-			$stmt->execute(array(time(), $url));
+	// replace links
+	foreach ($entities as $entity) {
+		$expanded_url = $entity["expanded_url"];
+		if (isset($entity["media_url_https"])) {
+			// Twitter uploaded picture
+			$expanded_url = $entity["media_url_https"].":large"; // use large picture
 		}
+		else {
+			if (preg_match("/^https?:\/\/twitter.com\/[^\/]+\/status\/\d+\/photo\/\d+/",$expanded_url,$matches) === 1) {
+				// Twitter uploaded gif picture
+				// these are not included in the media entities, instead it is a url entity to a twitter photo, where an mp4 file is included with a video tag
+				$html = @file_get_contents($expanded_url);
+				if (preg_match('/ video-src="([^"]+)"/',$html,$matches) === 1) {
+					$expanded_url = $matches[1];
+				}
+			}
+		}
+		$t["text"] = str_replace($entity["url"], $expanded_url, $t["text"]);
 	}
 
 	return $t;
@@ -537,12 +543,18 @@ function process_tweet($t) {
 
 		if (count($paths) >= 2) {
 			// embed pbs.twimg (twitter pics)
-			if ($host == "pbs.twimg.com" && $paths[0] == "media") {
-				$t["embeds"][] = array("<a href=\"$url\" title=\"$url\" rel=\"noreferrer\"><img src=\"$expanded_url\" /></a>", "picture");
+			if ($host == "pbs.twimg.com") {
+				if ($paths[0] == "media") {
+					// Twitter uploaded picture
+					$t["embeds"][] = array("<a href=\"$url\" title=\"$url\" rel=\"noreferrer\"><img src=\"$expanded_url\" /></a>", "picture");
+				}
+				else if ($paths[0] == "tweet_video") {
+					// Twitter uploaded gif
+					$t["embeds"][] = array("<video autoplay loop><source src=\"$expanded_url\"></video>", "picture");
+				}
 			}
 
 			// embed amp.twimg
-			// SELECT * FROM urls WHERE resolved LIKE '%twimg.com%';
 			if ($host == "amp.twimg.com" && $paths[0] == "v") {
 				$t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 			}
@@ -681,12 +693,7 @@ if (isset($_GET["all"])) {
 #die(var_dump(twitter_api("/application/rate_limit_status")));
 #die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
 #die(var_dump(twitter_api("/statuses/show", array("id" => "210462857140252672"))));
-// for ($i=0; $i < 130; $i++) {
-// 	// twitter_api("/statuses/show", array("id" => "411397857107664896"));
-// 	die(var_dump(get_tweet("411593665287446528")));
-// }
-// die();
-// die(var_dump(get_tweet("411593665287446528", true)));
+// die(var_dump(get_tweet("502606081538154496", true)));
 
 
 $query = array(
