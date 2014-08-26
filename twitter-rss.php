@@ -468,6 +468,14 @@ function process_tweet($t) {
 		$t["text"] = str_replace($url, "<a href=\"$expanded_url\" title=\"$url\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
 		$t["title"] = str_replace($url, "[$host]", $t["title"]);
 
+		// embed linked tweets
+		if ($host == "twitter.com" && count($paths) >= 3 && $paths[1] == "status" && ctype_digit($paths[2])) {
+			$t2 = get_tweet($paths[2]);
+			$posted = date("c", $t2["date"]);
+			$t["embeds"][] = array("<a href=\"https://twitter.com/{$t2["user"]}/status/{$t2["tweet_id"]}\" title=\"$posted\" rel=\"noreferrer\">{$t2["user"]}</a>: {$t2["text"]}", "text");
+			$t["embeds"] = array_merge($t["embeds"], $t2["embeds"]);
+		}
+
 		// embed YouTube
 		if (($host == "youtube.com" || $host == "m.youtube.com") && (isset($query["v"]) || isset($query["list"]))) {
 			$embed_url = "https://www.youtube.com/embed/".(isset($query["v"])?$query["v"]:"videoseries")."?".(isset($query["list"])?"list={$query["list"]}":"").(isset($query["t"])?"start={$query["t"]}":"");
