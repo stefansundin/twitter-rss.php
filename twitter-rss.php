@@ -376,7 +376,7 @@ function get_tweet($tweet_id, $force=false, $user=null) {
 			// 179: Sorry, you are not authorized to see this status.
 			// 34: Sorry, that page does not exist
 			$stmt = $db->prepare("INSERT OR REPLACE INTO tweets VALUES (NULL,?,?,NULL,NULL,?)");
-			$stmt->execute(array($tweet["id_str"], $user, $tweet["errors"][0]["code"]));
+			$stmt->execute(array($tweet_id, $user, $tweet["errors"][0]["code"]));
 			return false;
 		}
 		else if ($tweet["errors"][0]["code"] == 88) {
