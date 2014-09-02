@@ -58,6 +58,7 @@ function mail_error($error) {
 	return; // comment this line out and edit this function if you want to use this
 	$error["timestamp"] = strftime("%Y-%m-%d %T");
 	$error["ip"] = $_SERVER["REMOTE_ADDR"];
+	$error["uri"] = $_SERVER["REQUEST_URI"];
 	$headers = <<<EOF
 From: php@example.com
 Content-Type: text/plain; charset=utf-8
@@ -77,6 +78,7 @@ function log_exception($exception) {
 }
 
 function log_error($errno, $errstr, $errfile, $errline) {
+	if (!error_reporting()) return true;
 	mail_error(array(
 		"handler" => "error",
 		"type"    => $errno,
