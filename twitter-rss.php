@@ -597,7 +597,7 @@ function process_tweet($t) {
 
 			// embed Vine
 			if ($host == "vine.co" && $paths[0] == "v") {
-				$t["embeds"][] = array("<iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/embed/simple\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+				$t["embeds"][] = array("<iframe width=\"600\" height=\"600\" src=\"https://vine.co/v/{$paths[1]}/card\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 			}
 
 			// embed PHHHOTO
