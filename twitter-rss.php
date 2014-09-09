@@ -398,8 +398,6 @@ function get_tweet($tweet_id, $force=false, $user=null) {
 }
 
 function parse_tweet($tweet) {
-	global $db;
-
 	$t = array(
 		"tweet_id" => $tweet["id_str"],
 		"user"     => $tweet["user"]["screen_name"],
@@ -455,6 +453,8 @@ function process_tweet($t) {
 	// A nice way to test Twitter's url detection is to compose a new tweet and see when the url turns blue
 	$url_regex = "/(?!^|[^a-z0-9])https?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:]+(?<![%\.~?\[\]@!$&'()*,;:])/i";
 	$t["text"] = preg_replace_callback($url_regex, function($matches) use (&$t) {
+		global $db;
+
 		$url = $matches[0];
 		$expanded_url = httpsify(resolve_url($url));
 		$expanded_url_noslash = preg_replace("/\/$/", "", $expanded_url);
