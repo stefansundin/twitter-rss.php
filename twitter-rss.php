@@ -467,8 +467,10 @@ function process_tweet($t) {
 			double_explode("&", "=", parse_url($expanded_url, PHP_URL_FRAGMENT))
 		);
 
-		$t["text"] = str_replace($url, "<a href=\"$expanded_url\" title=\"$url\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
-		$t["title"] = str_replace($url, "[$host]", $t["title"]);
+		// This regex makes sure we don't match longer variants of this url
+		$thisurl_regex = "/".preg_quote($url,'/')."(?![a-z0-9\/\-\+=_#])/";
+		$t["text"] = preg_replace($thisurl_regex, "<a href=\"$expanded_url\" title=\"$url\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
+		$t["title"] = preg_replace($thisurl_regex, "[$host]", $t["title"]);
 
 		// embed linked tweets
 		if ($host == "twitter.com" && count($paths) >= 3 && $paths[1] == "status" && ctype_digit($paths[2])) {
@@ -703,7 +705,7 @@ if (isset($_GET["all"])) {
 #die(var_dump(twitter_api("/application/rate_limit_status")));
 #die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
 #die(var_dump(twitter_api("/statuses/show", array("id" => "210462857140252672"))));
-// die(var_dump(get_tweet("502606081538154496", true)));
+// die(var_dump(get_tweet("508675198925942784", true)));
 
 
 $query = array(
