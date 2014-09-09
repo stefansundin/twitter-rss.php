@@ -453,10 +453,9 @@ function process_tweet($t) {
 	// This regex is pretty close to Twitter's regex, but more relaxed since it allows invalid domain names
 	// The important part is pretty much deciding which characters can't be at the end of the url
 	// A nice way to test Twitter's url detection is to compose a new tweet and see when the url turns blue
-	$url_regex = "/(?:^|[^a-z0-9])(https?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:]+(?<![%\.~?\[\]@!$&'()*,;:]))/i";
-	preg_match_all($url_regex, $t["text"], $matches);
-
-	foreach ($matches[1] as $url) {
+	$url_regex = "/(?!^|[^a-z0-9])https?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:]+(?<![%\.~?\[\]@!$&'()*,;:])/i";
+	$t["text"] = preg_replace_callback($url_regex, function($matches) use (&$t) {
+		$url = $matches[0];
 		$expanded_url = httpsify(resolve_url($url));
 		$expanded_url_noslash = preg_replace("/\/$/", "", $expanded_url);
 		$host = preg_replace("/^www\./", "", parse_url($expanded_url, PHP_URL_HOST)); // remove www. if present
@@ -466,11 +465,6 @@ function process_tweet($t) {
 			double_explode("&", "=", parse_url($expanded_url, PHP_URL_QUERY)),
 			double_explode("&", "=", parse_url($expanded_url, PHP_URL_FRAGMENT))
 		);
-
-		// This regex makes sure we don't match longer variants of this url
-		$thisurl_regex = "/".preg_quote($url,'/')."(?![a-z0-9\/\-\+=_#])/";
-		$t["text"] = preg_replace($thisurl_regex, "<a href=\"$expanded_url\" title=\"$url\" rel=\"noreferrer\">$expanded_url</a>", $t["text"]);
-		$t["title"] = preg_replace($thisurl_regex, "[$host]", $t["title"]);
 
 		// embed linked tweets
 		if ($host == "twitter.com" && count($paths) >= 3 && $paths[1] == "status" && ctype_digit($paths[2])) {
@@ -661,13 +655,20 @@ function process_tweet($t) {
 			$height = isset($paths[1])?166:450;
 			$t["embeds"][] = array("<iframe width=\"853\" height=\"$height\" src=\"https://w.soundcloud.com/player/?url=$embed_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
 		}
-	}
+
+		return "<a href=\"$expanded_url\" title=\"$url\" rel=\"noreferrer\">$expanded_url</a>";
+	}, $t["text"]);
 
 	// embed Spotify plain text uri
-	preg_match_all("/spotify:(?:(?:album|artist|track):(?:[a-zA-Z0-9]+)|user:(?:[a-zA-Z0-9]+):playlist:(?:[a-zA-Z0-9]+))/", $t["text"], $matches);
-	foreach ($matches[0] as $uri) {
-		$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri=$uri\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
-	}
+	preg_replace_callback("/spotify:(?:(?:album|artist|track):(?:[a-zA-Z0-9]+)|user:(?:[a-zA-Z0-9]+):playlist:(?:[a-zA-Z0-9]+))/", function($matches) use (&$t) {
+		$t["embeds"][] = array("<iframe width=\"300\" height=\"380\" src=\"https://embed.spotify.com/?uri={$matches[0]}\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "audio");
+	}, $t["text"]);
+
+	// Title
+	$t["title"] = preg_replace_callback($url_regex, function($matches) {
+		$host = preg_replace("/^www\./", "", parse_url(resolve_url($matches[0]), PHP_URL_HOST)); // remove www. if present
+		return "[$host]";
+	}, $t["title"]);
 
 	return $t;
 }
