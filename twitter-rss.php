@@ -469,7 +469,7 @@ function process_tweet($t) {
 			$t2 = get_tweet($paths[2]);
 			$posted = date("c", $t2["date"]);
 			$t["embeds"][] = array("<a href=\"https://twitter.com/{$t2["user"]}/status/{$t2["tweet_id"]}\" title=\"$posted\" rel=\"noreferrer\">{$t2["user"]}</a>: {$t2["text"]}", "text");
-			$t["embeds"] = array_merge($t["embeds"], $t2["embeds"]);
+			#$t["embeds"] = array_merge($t["embeds"], $t2["embeds"]);
 		}
 
 		// embed YouTube
