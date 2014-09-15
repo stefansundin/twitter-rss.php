@@ -465,12 +465,12 @@ function process_tweet($t) {
 		);
 
 		// embed linked tweets
-		if ($host == "twitter.com" && count($paths) >= 3 && $paths[1] == "status" && ctype_digit($paths[2])) {
-			$t2 = get_tweet($paths[2]);
-			$posted = date("c", $t2["date"]);
-			$t["embeds"][] = array("<a href=\"https://twitter.com/{$t2["user"]}/status/{$t2["tweet_id"]}\" title=\"$posted\" rel=\"noreferrer\">{$t2["user"]}</a>: {$t2["text"]}", "text");
-			#$t["embeds"] = array_merge($t["embeds"], $t2["embeds"]);
-		}
+		// if ($host == "twitter.com" && count($paths) >= 3 && $paths[1] == "status" && ctype_digit($paths[2])) {
+		// 	$t2 = get_tweet($paths[2]);
+		// 	$posted = date("c", $t2["date"]);
+		// 	$t["embeds"][] = array("<a href=\"https://twitter.com/{$t2["user"]}/status/{$t2["tweet_id"]}\" title=\"$posted\" rel=\"noreferrer\">{$t2["user"]}</a>: {$t2["text"]}", "text");
+		// 	#$t["embeds"] = array_merge($t["embeds"], $t2["embeds"]);
+		// }
 
 		// embed YouTube
 		if (($host == "youtube.com" || $host == "m.youtube.com") && (isset($query["v"]) || isset($query["list"]))) {
