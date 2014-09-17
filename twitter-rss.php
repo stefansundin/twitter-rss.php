@@ -443,7 +443,7 @@ function unscramble_text($text) {
 function process_tweet($t) {
 	global $db;
 
-	$t["text"] = str_replace(array("&","<",">"), array("&amp;","&amp;lt;","&amp;gt;"), $t["text"]);
+	$t["text"] = str_replace(array("<",">"), array("&amp;lt;","&amp;gt;"), $t["text"]);
 	$t["title"] = $t["text"];
 	$t["embeds"] = array();
 
@@ -704,7 +704,7 @@ if (isset($_GET["all"])) {
 #die(var_dump(twitter_api("/application/rate_limit_status")));
 #die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
 #die(var_dump(twitter_api("/statuses/show", array("id" => "210462857140252672"))));
-// die(var_dump(get_tweet("511508079154696193", true)));
+// die(var_dump(get_tweet("509567515316715523", true)));
 
 
 $query = array(
