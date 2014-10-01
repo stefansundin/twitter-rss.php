@@ -628,7 +628,7 @@ function process_tweet($t) {
 
 			// embed TwitLonger
 			if ($host == "twitlonger.com" && $paths[0] == "show") {
-				$t["embeds"][] = array("<iframe width=\"760\" height=\"500\" src=\"$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "text");
+				$t["embeds"][] = array("<iframe width=\"850\" height=\"500\" src=\"$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "text");
 			}
 
 			// embed Indiegogo
