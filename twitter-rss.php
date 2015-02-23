@@ -451,7 +451,7 @@ function process_tweet($t) {
 	// This regex is pretty close to Twitter's regex, but more relaxed since it allows invalid domain names
 	// The important part is pretty much deciding which characters can't be at the end of the url
 	// A nice way to test Twitter's url detection is to compose a new tweet and see when the url turns blue
-	$url_regex = "/\bhttps?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:]+(?<![%\.~?\[\]@!$&'()*,;:])/i";
+	$url_regex = "/\bhttps?:\/\/[a-z0-9\/\-+=_#%\.~?\[\]@!$&'()*,;:\|]+(?<![%\.~?\[\]@!$&'()*,;:])/i";
 	$t["text"] = preg_replace_callback($url_regex, function($matches) use (&$t, $db) {
 		$url = $matches[0];
 		$expanded_url = httpsify(resolve_url($url));
