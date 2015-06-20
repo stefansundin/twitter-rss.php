@@ -1,0 +1,8 @@
+Thumbs.db
+.DS_Store
+*.swp
+
+# ln -s .gitignore z.gitignore
+.gitignore
+*.db
+*.xt
