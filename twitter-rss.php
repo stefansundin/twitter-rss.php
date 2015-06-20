@@ -406,6 +406,9 @@ function parse_tweet($tweet) {
 	);
 
 	$entities = $tweet["entities"]["urls"];
+	if (isset($tweet["extended_entities"]) && isset($tweet["extended_entities"]["media"])) {
+		$entities = array_merge($entities, $tweet["extended_entities"]["media"]);
+	}
 	if (isset($tweet["entities"]["media"])) {
 		$entities = array_merge($entities, $tweet["entities"]["media"]);
 	}
@@ -413,7 +416,11 @@ function parse_tweet($tweet) {
 	// replace links
 	foreach ($entities as $entity) {
 		$expanded_url = $entity["expanded_url"];
-		if (isset($entity["media_url_https"])) {
+		if (isset($entity["video_info"])) {
+			// Twitter video
+			$expanded_url = $entity["video_info"]["variants"][0]["url"];
+		}
+		else if (isset($entity["media_url_https"])) {
 			// Twitter uploaded picture
 			$expanded_url = $entity["media_url_https"].":large"; // use large picture
 		}
@@ -703,8 +710,8 @@ if (isset($_GET["all"])) {
 
 #die(var_dump(twitter_api("/application/rate_limit_status")));
 #die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
-#die(var_dump(twitter_api("/statuses/show", array("id" => "210462857140252672"))));
-// die(var_dump(get_tweet("509567515316715523", true)));
+// die(var_dump(twitter_api("/statuses/show", array("id" => "611612726092128256"))));
+// die(var_dump(get_tweet("611612726092128256", true)));
 
 
 $query = array(
