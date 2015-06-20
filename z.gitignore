@@ -2,7 +2,7 @@ Thumbs.db
 .DS_Store
 *.swp
 
-# ln -s .gitignore z.gitignore
+# ln -s z.gitignore .gitignore
 .gitignore
 *.db
 *.xt
