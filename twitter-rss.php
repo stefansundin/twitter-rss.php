@@ -418,6 +418,25 @@ function parse_tweet($tweet) {
 		$expanded_url = $entity["expanded_url"];
 		if (isset($entity["video_info"])) {
 			// Twitter video
+			// pick highest bitrate of whatever variant have video/ its content type
+			usort($entity["video_info"]["variants"], function($a, $b) {
+				if (strpos($a["content_type"],"video/") === 0 && strpos($b["content_type"],"video/") === 0) {
+					// both $a and $b are video/
+					return $b["bitrate"]-$a["bitrate"];
+				}
+				else if (strpos($a["content_type"],"video/") === 0 && strpos($b["content_type"],"video/") !== 0) {
+					// $a is video/ but $b is not
+					return -1;
+				}
+				else if (strpos($b["content_type"],"video/") === 0 && strpos($a["content_type"],"video/") !== 0) {
+					// $b is video/ but $a is not
+					return 1;
+				}
+				else {
+					// neither $a or $b is video/
+					return 0;
+				}
+			});
 			$expanded_url = $entity["video_info"]["variants"][0]["url"];
 		}
 		else if (isset($entity["media_url_https"])) {
@@ -570,6 +589,11 @@ function process_tweet($t) {
 				$t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
 			}
 
+			// embed video.twimg
+			if ($host == "video.twimg.com" && $paths[0] == "ext_tw_video") {
+				$t["embeds"][] = array("<video autoplay loop><source src=\"$expanded_url\"></video>", "video");
+			}
+
 			// embed Instagram
 			// find out if it's an image or video, embed with img tag if photo, use iframe otherwise
 			if (preg_match("/^(i\.)?instagram\.com$/",$host) === 1 && $paths[0] == "p") {
@@ -707,11 +731,11 @@ if (isset($_GET["all"])) {
 }
 
 
-
+// header("Content-Type: text/plain;charset=utf-8");
 #die(var_dump(twitter_api("/application/rate_limit_status")));
 #die(var_dump(twitter_api("/users/lookup", array("screen_name" => $user))));
-// die(var_dump(twitter_api("/statuses/show", array("id" => "611612726092128256"))));
-// die(var_dump(get_tweet("611612726092128256", true)));
+// die(var_dump(twitter_api("/statuses/show", array("id" => "612335003972689920"))));
+// die(var_dump(get_tweet("612335003972689920", true)));
 
 
 $query = array(
