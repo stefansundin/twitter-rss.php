@@ -560,14 +560,14 @@ function process_tweet($t) {
     if ($host == "pinterest.com" && !in_array($paths[0],explode(",",",join,login,popular,all,gifts,videos,_,search,about,fashionweek"))) {
       if ($paths[0] == "pin") {
         if (isset($paths[1]) && ctype_digit($paths[1])) {
-          $t["embeds"][] = array("<iframe width=\"270\" height=\"500\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "picture");
+          $t["embeds"][] = array("<iframe width=\"270\" height=\"500\" src=\"https://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedPin&url=$expanded_url\" frameborder=\"0\" allowfullscreen></iframe>", "picture");
         }
       }
       else if (count($paths) == 1) {
-        $t["embeds"][] = array("<iframe width=\"600\" height=\"280\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedUser&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+        $t["embeds"][] = array("<iframe width=\"600\" height=\"280\" src=\"https://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedUser&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
       }
       else if (count($paths) >= 2 && !in_array($paths[1],explode(",","boards,pins,likes,followers,following"))) {
-        $t["embeds"][] = array("<iframe width=\"600\" height=\"280\" src=\"http://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedBoard&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
+        $t["embeds"][] = array("<iframe width=\"600\" height=\"280\" src=\"https://stefansundin.com/stuff/pinterest-iframe-embed.php?type=embedBoard&url=$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
       }
     }
 
