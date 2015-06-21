@@ -1,5 +1,4 @@
 <?php
-// Note: this file is only prefixed with "z-" to make github gist put the file below twitter-rss.php (they sort alphabetically), so just rename it if you want to use it.
 
 if (!isset($_GET["type"]) || !isset($_GET["url"]) || !preg_match("/^https?:\/\/(?:www\.)?pinterest\.com\//",$_GET["url"]) > 0 || strpos($_GET["type"],'"') || strpos($_GET["url"],'"')) {
 	header("Content-Type: text/plain");
