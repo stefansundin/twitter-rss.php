@@ -47,8 +47,7 @@ https://creativecommons.org/licenses/by/3.0/
 
 $consumer_key = "xxx";
 $consumer_secret = "yyy";
-$access_token = "zzz";
-$access_token_secret = "xyz";
+$access_token = "";
 
 date_default_timezone_set("Europe/Stockholm");
 
@@ -187,49 +186,42 @@ function shutdown() {
   $db->commit();
 }
 
+function twitter_auth() {
+  global $consumer_key, $consumer_secret;
+
+  $curl = curl_init();
+  curl_setopt_array($curl, array(
+    CURLOPT_HTTPHEADER => array(
+      "Authorization: Basic ".base64_encode(rawurlencode($consumer_key).":".rawurlencode($consumer_secret)),
+      "Content-Type: application/x-www-form-urlencoded;charset=UTF-8"
+    ),
+    CURLOPT_HEADER => false,
+    CURLOPT_URL => "https://api.twitter.com/oauth2/token",
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => "grant_type=client_credentials"
+  ));
+  $json = json_decode(curl_exec($curl), true);
+  curl_close($curl);
+  return $json;
+}
+
 function twitter_api($resource, $query=array()) {
-  global $consumer_key, $consumer_secret, $access_token, $access_token_secret;
-  $url = "https://api.twitter.com/1.1$resource.json";
-  $oauth = array(
-    "oauth_consumer_key" => $consumer_key,
-    "oauth_token" => $access_token,
-    "oauth_nonce" => (string) mt_rand(),
-    "oauth_timestamp" => time(),
-    "oauth_signature_method" => "HMAC-SHA1",
-    "oauth_version" => "1.0"
-  );
-  $oauth = array_map("rawurlencode", $oauth); // must be encoded before sorting
-  //$query = array_map("rawurlencode", $query);
-  $arr = array_merge($oauth, $query); // combine the values THEN sort
-  asort($arr); // secondary sort (value)
-  ksort($arr); // primary sort (key)
-
-  // http_build_query automatically encodes, but our parameters are already encoded, and must be by this point, so we undo the encoding step
-  $querystring = urldecode(http_build_query($arr, "", "&"));
-
-  // generate the hash
-  $base_string = "GET&".rawurlencode($url)."&".rawurlencode($querystring);
-  $key = rawurlencode($consumer_secret)."&".rawurlencode($access_token_secret);
-  $signature = rawurlencode(base64_encode(hash_hmac("sha1", $base_string, $key, true)));
-  $oauth["oauth_signature"] = $signature;
-  ksort($oauth); // probably not necessary, but twitter's demo does it
-  $auth = "OAuth ".urldecode(http_build_query($oauth, "", ", "));
-
-  // encode the query params
-  $url .= "?".http_build_query($query);
+  global $consumer_key, $consumer_secret, $access_token;
+  $url = "https://api.twitter.com/1.1$resource.json?".http_build_query($query);
   $url = str_replace(array("&amp;","%25"), array("&","%"), $url);
 
-  // make the request
-  $feed = curl_init();
-  curl_setopt_array($feed, array(
-    CURLOPT_HTTPHEADER => array("Authorization: $auth"),
+  $curl = curl_init();
+  curl_setopt_array($curl, array(
+    CURLOPT_HTTPHEADER => array("Authorization: Bearer $access_token"),
     CURLOPT_HEADER => false,
     CURLOPT_URL => $url,
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_SSL_VERIFYPEER => false
   ));
-  $json = json_decode(curl_exec($feed), true);
-  curl_close($feed);
+  $json = json_decode(curl_exec($curl), true);
+  curl_close($curl);
   return $json;
 }
 
@@ -728,6 +720,13 @@ if (isset($_GET["all"])) {
     $getall = true;
     set_time_limit(30*60); // this will take forever
   }
+}
+
+
+if (strlen($access_token) < 10) {
+  $json = twitter_auth();
+  header("Content-Type: text/plain;charset=utf-8");
+  die("\$access_token = \"{$json["access_token"]}\";");
 }
 
 
