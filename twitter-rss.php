@@ -572,7 +572,7 @@ function process_tweet($t) {
         }
         else if ($paths[0] == "tweet_video") {
           // Twitter uploaded gif
-          $t["embeds"][] = array("<video autoplay loop><source src=\"$expanded_url\"></video>", "picture");
+          $t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "picture");
         }
       }
 
@@ -583,7 +583,7 @@ function process_tweet($t) {
 
       // embed video.twimg
       if ($host == "video.twimg.com" && $paths[0] == "ext_tw_video") {
-        $t["embeds"][] = array("<video autoplay loop><source src=\"$expanded_url\"></video>", "video");
+        $t["embeds"][] = array("<iframe width=\"640\" height=\"530\" src=\"$expanded_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
       }
 
       // embed Instagram
