@@ -1,53 +1,14 @@
 <?php
-/* https://gist.github.com/stefansundin/5951213
+/* https://github.com/stefansundin/twitter-rss.php
 Twitter to RSS (Atom feed)
-By: Stefan Sundin https://github.com/stefansundin
+By: Stefan Sundin
 Based on: https://github.com/jdelamater99/Twitter-RSS-Parser/
 License: CC BY 3.0
-
-
-Steps:
-1. Create a Twitter account.
-2. Create an app on https://dev.twitter.com/apps
-3. Copy consumer key and consumer secret to variables below.
-4. Create an access token on the bottom of the app page.
-5. Copy the access token and its secret to the variables below.
-6. Set up the feeds in your favorite reader, using twitter-rss.php?user=
-7. Make sure the url resolution database is created. Otherwise you can try: touch twitter-rss.db; chmod 666 twitter-rss.db
-
-
-To get history:
-1. Request twitter-rss.php?user=github&all
-2. You will be redirected to twitter-rss.php?user=github&all=<timestamp>
-3. This url can be used to fetch all tweets for 30 minutes, after that, it will no longer have any effect.
-   The reason for this is to prevent your feed reader from using up the Twitter API limit.
-4. Add this url to your feed reader before the timer runs out. You may have to get a new url since resolving the urls probably took a while.
-5. Note that the API limits the number of tweets you can get to about 3200 tweets.
-
-
-To clean up the database (remove urls not seen in the last three days):
-sqlite3 twitter-rss.db "DELETE FROM urls WHERE last_seen < strftime('%s','now','-3 days'); VACUUM;"
-
-You may want to create an index (I have not seen any significant gains from it yet, so it's not done automatically):
-CREATE INDEX url ON urls (url)
-
-Note:
-It seems that links created in 2011 and earlier don't always have their urls as entities (they are not even autolinked when viewing them on twitter.com).
-Old tweets don't escape ampersands either.
-180 requests can be done per 15 minutes.
-TODO: Make sure we don't hit the limit.
-Check your limits by going to twitter-rss.php?limits
-The PHP extensions php_curl, php_pdo_sqlite, and php_openssl must be enabled.
-
-https://dev.twitter.com/docs/api/1.1/get/statuses/user_timeline
-https://dev.twitter.com/docs/rate-limiting/1.1
-https://dev.twitter.com/docs/tweet-entities
-https://creativecommons.org/licenses/by/3.0/
 */
 
 $consumer_key = "xxx";
 $consumer_secret = "yyy";
-$access_token = "";
+$bearer_token = "zzz";
 
 date_default_timezone_set("Europe/Stockholm");
 
@@ -208,13 +169,13 @@ function twitter_auth() {
 }
 
 function twitter_api($resource, $query=array()) {
-  global $consumer_key, $consumer_secret, $access_token;
+  global $consumer_key, $consumer_secret, $bearer_token;
   $url = "https://api.twitter.com/1.1$resource.json?".http_build_query($query);
   $url = str_replace(array("&amp;","%25"), array("&","%"), $url);
 
   $curl = curl_init();
   curl_setopt_array($curl, array(
-    CURLOPT_HTTPHEADER => array("Authorization: Bearer $access_token"),
+    CURLOPT_HTTPHEADER => array("Authorization: Bearer $bearer_token"),
     CURLOPT_HEADER => false,
     CURLOPT_URL => $url,
     CURLOPT_RETURNTRANSFER => true,
@@ -723,10 +684,10 @@ if (isset($_GET["all"])) {
 }
 
 
-if (strlen($access_token) < 10) {
+if (strlen($bearer_token) < 10) {
   $json = twitter_auth();
   header("Content-Type: text/plain;charset=utf-8");
-  die("\$access_token = \"{$json["access_token"]}\";");
+  die("\$bearer_token = \"{$json["access_token"]}\";");
 }
 
 
