@@ -453,7 +453,11 @@ function process_tweet($t) {
 
     // embed YouTube
     if (($host == "youtube.com" || $host == "m.youtube.com") && (isset($query["v"]) || isset($query["list"]))) {
-      $embed_url = "https://www.youtube.com/embed/".(isset($query["v"])?$query["v"]:"videoseries")."?".(isset($query["list"])?"list={$query["list"]}":"").(isset($query["t"])?"start={$query["t"]}":"");
+      $embed_url = "https://www.youtube.com/embed/".(isset($query["v"])?$query["v"]:"")."?rel=0".(isset($query["list"])?"&list={$query["list"]}":"");
+      if (isset($query["t"]) && preg_match("/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/",$query["t"],$matches)) {
+        $start = (isset($matches[1])?(int)$matches[1]*60*60:0) + (isset($matches[2])?(int)$matches[2]*60:0) + (isset($matches[3])?(int)$matches[3]:0);
+        $embed_url .= "&start=".$start;
+      }
       $t["embeds"][] = array("<iframe width=\"853\" height=\"480\" src=\"$embed_url\" frameborder=\"0\" scrolling=\"no\" allowfullscreen></iframe>", "video");
     }
 
