@@ -7,7 +7,7 @@
 # Instructions
 
 1. Create a Twitter account.
-2. Create an app on https://dev.twitter.com/apps
+2. Create an app on https://apps.twitter.com/
 3. Copy consumer key and consumer secret to variables at the top of `twitter-rss.php`.
 4. Run the script to get a bearer token.
 5. Copy the bearer token to the source code.

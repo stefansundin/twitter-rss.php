@@ -579,8 +579,8 @@ function process_tweet($t) {
       }
 
       // embed giphy
-      if ($host == "giphy.com" && $paths[0] == "gifs") {
-        $t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://media.giphy.com/media/{$paths[1]}/giphy.gif\" /></a>", "picture");
+      if ($host == "giphy.com" && preg_match("/^\/gifs\/(?:.*-)?(?<giphy_id>[0-9a-zA-Z]+)(\/|\?|&|#|$)/",$path,$matches) === 1) {
+        $t["embeds"][] = array("<a href=\"$expanded_url\" title=\"$expanded_url\" rel=\"noreferrer\"><img src=\"https://i.giphy.com/{$matches[1]}.gif\" /></a>", "picture");
       }
 
       // embed Vine
