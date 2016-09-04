@@ -169,7 +169,7 @@ function twitter_auth() {
 }
 
 function twitter_api($resource, $query=array()) {
-  global $consumer_key, $consumer_secret, $bearer_token;
+  global $bearer_token;
   $url = "https://api.twitter.com/1.1$resource.json?".http_build_query($query);
   $url = str_replace(array("&amp;","%25"), array("&","%"), $url);
 
